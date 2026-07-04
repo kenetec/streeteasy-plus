@@ -3,13 +3,21 @@
 // Skeleton stage: proves injection works and the popup can reach us. Card
 // discovery, coordinate extraction, and filtering come in build-plan steps 2-5.
 
+import type {
+  CommuteSettings,
+  GetIsochroneMessage,
+  GetIsochroneResponse,
+  PopupToContentMessage,
+} from '../types';
+
 console.log('[commute-filter] content script loaded on', location.pathname);
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === 'APPLY_FILTER') {
-    console.log('[commute-filter] APPLY_FILTER received', msg.settings);
-    applyFilter(msg.settings);
-  } else if (msg?.type === 'CLEAR_FILTER') {
+chrome.runtime.onMessage.addListener((msg: unknown) => {
+  const message = msg as PopupToContentMessage;
+  if (message?.type === 'APPLY_FILTER') {
+    console.log('[commute-filter] APPLY_FILTER received', message.settings);
+    applyFilter(message.settings);
+  } else if (message?.type === 'CLEAR_FILTER') {
     console.log('[commute-filter] CLEAR_FILTER received');
     clearFilter();
   }
@@ -17,23 +25,26 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 // On page load, re-apply any saved filter so the user doesn't have to
 // reopen the popup on every search page.
-chrome.storage.sync.get('commuteSettings').then(({ commuteSettings }) => {
+chrome.storage.sync.get('commuteSettings').then((stored) => {
+  const { commuteSettings } = stored as { commuteSettings?: CommuteSettings };
   if (commuteSettings) applyFilter(commuteSettings);
 });
 
-async function applyFilter(settings) {
+async function applyFilter(settings: CommuteSettings): Promise<void> {
   // Ask the service worker for the isochrone. In the skeleton this returns
   // a stub error — the visible banner proves the full round trip works:
   // popup -> content script -> service worker -> content script.
-  const response = await chrome.runtime.sendMessage({
-    type: 'GET_ISOCHRONE',
-    settings,
-  });
+  const request: GetIsochroneMessage = { type: 'GET_ISOCHRONE', settings };
+  const response = (await chrome.runtime.sendMessage(
+    request
+  )) as GetIsochroneResponse | undefined;
 
   if (!response?.ok) {
+    const error =
+      response && !response.ok ? response.error : 'no response';
     showBanner(
       `Commute filter: ${settings.maxMinutes} min by ${settings.mode} ` +
-        `from "${settings.workAddress}" — ${response?.error ?? 'no response'}`
+        `from "${settings.workAddress}" — ${error}`
     );
     return;
   }
@@ -43,7 +54,7 @@ async function applyFilter(settings) {
   // and re-run via MutationObserver as new cards render.
 }
 
-function clearFilter() {
+function clearFilter(): void {
   removeBanner();
   // TODO (step 5): remove .commute-filtered-out classes and badges.
 }
@@ -52,7 +63,7 @@ function clearFilter() {
 
 const BANNER_ID = 'commute-filter-banner';
 
-function showBanner(text) {
+function showBanner(text: string): void {
   removeBanner();
   const el = document.createElement('div');
   el.id = BANNER_ID;
@@ -60,6 +71,6 @@ function showBanner(text) {
   document.body.appendChild(el);
 }
 
-function removeBanner() {
+function removeBanner(): void {
   document.getElementById(BANNER_ID)?.remove();
 }
