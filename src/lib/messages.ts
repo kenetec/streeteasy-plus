@@ -36,6 +36,7 @@ export function createMessageHandler(provider: CommuteProvider) {
       handleGetIsochrone(provider, msg.settings).then(sendResponse);
       return true;
     }
+    console.error('[commute-filter] unhandled message', msg);
     return undefined;
   };
 }
