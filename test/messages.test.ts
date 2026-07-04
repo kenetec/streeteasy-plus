@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createMessageHandler, GET_ISOCHRONE } from '../src/lib/messages';
+import { withCache } from '../src/lib/cache';
 import type { CommuteProvider, CommuteSettings } from '../src/types';
 
 const settings: CommuteSettings = {
@@ -8,11 +9,17 @@ const settings: CommuteSettings = {
   mode: 'transit',
 };
 
+const geocoded = {
+  lat: 40.7484,
+  lng: -73.9857,
+  formatted: '350 5th Ave, New York, NY 10118, United States of America',
+};
+
 const fakeSender = {} as chrome.runtime.MessageSender;
 
 function createFakeProvider(): CommuteProvider {
   return {
-    geocode: vi.fn().mockResolvedValue({ lat: 40.7484, lng: -73.9857 }),
+    geocode: vi.fn().mockResolvedValue(geocoded),
     getIsochrone: vi
       .fn()
       .mockResolvedValue({ type: 'MultiPolygon', coordinates: [] }),
@@ -89,9 +96,46 @@ describe('createMessageHandler', () => {
       expect(provider.geocode).toHaveBeenCalledWith(settings.workAddress);
     });
     expect(provider.getIsochrone).toHaveBeenCalledWith(
-      { lat: 40.7484, lng: -73.9857 },
+      geocoded,
       settings.maxMinutes * 60,
       settings.mode
     );
+  });
+
+  it('converts a rejected provider call into { ok: false, error }', async () => {
+    const provider: CommuteProvider = {
+      geocode: vi.fn().mockRejectedValue(new Error('boom')),
+      getIsochrone: vi
+        .fn()
+        .mockResolvedValue({ type: 'MultiPolygon', coordinates: [] }),
+    };
+    const handler = createMessageHandler(provider);
+    const sendResponse = vi.fn();
+
+    handler({ type: GET_ISOCHRONE, settings }, fakeSender, sendResponse);
+
+    await vi.waitFor(() => {
+      expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'boom' });
+    });
+  });
+
+  it('caches repeated identical requests so the inner provider runs once', async () => {
+    const inner = createFakeProvider();
+    const handler = createMessageHandler(withCache(inner));
+
+    const first = vi.fn();
+    handler({ type: GET_ISOCHRONE, settings }, fakeSender, first);
+    await vi.waitFor(() => expect(first).toHaveBeenCalled());
+
+    const second = vi.fn();
+    handler({ type: GET_ISOCHRONE, settings }, fakeSender, second);
+    await vi.waitFor(() => expect(second).toHaveBeenCalled());
+
+    expect(first).toHaveBeenCalledWith({
+      ok: true,
+      polygon: { type: 'MultiPolygon', coordinates: [] },
+    });
+    expect(second).toHaveBeenCalledWith(first.mock.calls[0]?.[0]);
+    expect(inner.getIsochrone).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,11 +1,33 @@
 import { build, context } from 'esbuild';
-import { cpSync, rmSync, mkdirSync } from 'node:fs';
+import { cpSync, rmSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const dist = path.join(root, 'dist');
 const watch = process.argv.includes('--watch');
+
+// Hand-rolled .env parser — a missing file (e.g. in CI) just means no
+// overrides, not a build failure.
+function loadEnv() {
+  const env = {};
+  let contents;
+  try {
+    contents = readFileSync(path.join(root, '.env'), 'utf8');
+  } catch {
+    return env;
+  }
+  for (const line of contents.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    env[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+  }
+  return env;
+}
+
+const env = loadEnv();
 
 const entryPoints = {
   background: 'src/background.ts',
@@ -32,6 +54,9 @@ const buildOptions = {
   target: 'chrome110',
   sourcemap: true,
   logLevel: 'info',
+  define: {
+    __GEOAPIFY_API_KEY__: JSON.stringify(env.GEOAPIFY_API_KEY ?? ''),
+  },
 };
 
 rmSync(dist, { recursive: true, force: true });

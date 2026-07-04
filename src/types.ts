@@ -19,13 +19,22 @@ export interface LatLng {
   lng: number;
 }
 
+/** A geocoded location: coordinates plus Geoapify's formatted address string. */
+export interface GeocodedLocation extends LatLng {
+  formatted: string;
+}
+
 /**
- * Isochrone polygon geometry. Kept as `unknown` for now — the concrete
- * GeoJSON MultiPolygon shape arrives with the Geoapify build-plan step.
- * Left intentionally loose so this port doesn't invent geometry types
- * ahead of that work.
+ * Isochrone polygon geometry, normalized to GeoJSON MultiPolygon regardless
+ * of whether the Geoapify isoline response was a Polygon or MultiPolygon
+ * feature (see src/lib/geoapify.ts). Each position is [lng, lat].
  */
-export type IsochronePolygon = unknown;
+export interface GeoJSONMultiPolygon {
+  type: 'MultiPolygon';
+  coordinates: number[][][][];
+}
+
+export type IsochronePolygon = GeoJSONMultiPolygon;
 
 // --- Runtime message contract (popup <-> content script <-> background) ---
 
@@ -57,7 +66,7 @@ export type GetIsochroneResponse =
 // --- Commute provider interface (design doc; implemented in a later step) ---
 
 export interface CommuteProvider {
-  geocode(address: string): Promise<LatLng>;
+  geocode(address: string): Promise<GeocodedLocation>;
   getIsochrone(
     origin: LatLng,
     seconds: number,
