@@ -1,11 +1,9 @@
 // Popup: collects settings, persists them, and notifies the active tab.
 // No API calls happen here — that's the service worker's job (later step).
 
-import type {
-  CommuteSettings,
-  PopupToContentMessage,
-  TravelMode,
-} from '../types';
+import { APPLY_FILTER, CLEAR_FILTER } from '../lib/messages';
+import { clampMinutes, validateSettings } from './settings';
+import type { CommuteSettings, PopupToContentMessage, TravelMode } from '../types';
 
 const els = {
   address: document.getElementById('address') as HTMLInputElement,
@@ -30,12 +28,25 @@ async function init(): Promise<void> {
 }
 
 els.apply.addEventListener('click', async () => {
-  const settings = readAndValidate();
-  if (!settings) return;
+  // Clamped value is always reflected in the field, even if the address
+  // turns out to be invalid below.
+  const maxMinutes = clampMinutes(parseInt(els.minutes.value, 10));
+  els.minutes.value = String(maxMinutes);
+
+  const settings = validateSettings({
+    workAddress: els.address.value,
+    maxMinutes,
+    mode: els.mode.value as TravelMode,
+  });
+
+  if (!settings) {
+    setStatus('Enter a work address first.', true);
+    return;
+  }
 
   await chrome.storage.sync.set({ commuteSettings: settings });
 
-  const sent = await notifyActiveTab({ type: 'APPLY_FILTER', settings });
+  const sent = await notifyActiveTab({ type: APPLY_FILTER, settings });
   setStatus(
     sent
       ? 'Filter applied.'
@@ -48,25 +59,9 @@ els.clear.addEventListener('click', async () => {
   els.address.value = '';
   els.minutes.value = '30';
   els.mode.value = 'transit';
-  await notifyActiveTab({ type: 'CLEAR_FILTER' });
+  await notifyActiveTab({ type: CLEAR_FILTER });
   setStatus('Filter cleared.');
 });
-
-function readAndValidate(): CommuteSettings | null {
-  const workAddress = els.address.value.trim();
-  // Clamp to Geoapify's 60-minute isochrone cap (design doc §10).
-  const maxMinutes = Math.min(
-    60,
-    Math.max(1, parseInt(els.minutes.value, 10) || 0)
-  );
-  els.minutes.value = String(maxMinutes);
-
-  if (!workAddress) {
-    setStatus('Enter a work address first.', true);
-    return null;
-  }
-  return { workAddress, maxMinutes, mode: els.mode.value as TravelMode };
-}
 
 // Sends a message to the content script in the active tab.
 // Returns false if the active tab isn't a StreetEasy search page

@@ -60,7 +60,7 @@ export interface CommuteProvider {
   geocode(address: string): Promise<LatLng>;
   getIsochrone(
     origin: LatLng,
-    maxMinutes: number,
+    seconds: number,
     mode: TravelMode
   ): Promise<IsochronePolygon>;
   getExactTime?(
