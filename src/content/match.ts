@@ -2,13 +2,12 @@
 // StreetEasy-agnostic — see streeteasy-dom.ts and streeteasy-jsonld.ts for
 // all site-specific parsing.
 
+import type { LatLng } from '../lib/geometry';
 import type { DiscoveredCard } from './streeteasy-dom';
 import type { ListingGeo } from './streeteasy-jsonld';
 
-export interface LocatedCard {
+export interface LocatedCard extends LatLng {
   element: Element;
-  lat: number;
-  lng: number;
   listingUrl: string;
 }
 
