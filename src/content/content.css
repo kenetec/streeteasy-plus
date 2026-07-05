@@ -2,15 +2,6 @@
    "commute-" — see decorate.ts (badges) and banner.ts (#commute-filter-
    banner) for what actually creates these elements. */
 
-/* A positioned ancestor for the absolutely-positioned .commute-badge added
-   by decorate.ts. This forces `position: relative` onto every card
-   classify.ts marks with [data-commute] — if a card is natively positioned
-   some other way, this could shift its layout. Verify visually against a
-   live search page (see PR description's manual verification checklist). */
-[data-commute] {
-  position: relative;
-}
-
 /* "beyond": dimming IS the signal — no badge. Restored on hover so users
    can still inspect what was excluded. */
 [data-commute="beyond"] {
@@ -23,13 +14,15 @@
 }
 
 /* Badge added/removed by decorate.ts for "within" and "unknown" cards.
-   Base styling is the high-contrast "within" look; .commute-badge--unknown
-   overrides it to a visually muted scheme so it doesn't read as a match. */
+   Inserted in normal flow right after the listing address link (or
+   appended to the card as a fallback) — NOT absolutely positioned over the
+   photo, which collided with StreetEasy's own "Enhanced gallery"/"3D tour"
+   overlay buttons in the top-right photo corner. Base styling is the
+   high-contrast "within" look; .commute-badge--unknown overrides it to a
+   visually muted scheme so it doesn't read as a match. */
 .commute-badge {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 10; /* above card imagery; StreetEasy's own overlays sit much higher */
+  display: inline-block;
+  margin: 4px 0;
   padding: 2px 6px;
   border-radius: 999px;
   font: 600 11px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;

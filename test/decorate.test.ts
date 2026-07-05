@@ -13,6 +13,7 @@ import {
   type DecorateSettings,
 } from '../src/content/decorate';
 import { COMMUTE_ATTR } from '../src/content/classify';
+import { findListingAnchor } from '../src/content/streeteasy-dom';
 
 const fixturePath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -44,6 +45,34 @@ describe('decorateCards', () => {
     expect(badges.length).toBe(1);
     expect(badges[0]?.textContent).toBe('≤ 30 min');
     expect(badges[0]?.classList.contains('commute-badge')).toBe(true);
+  });
+
+  it('places the badge as the address anchor\'s next sibling, not over the photo', () => {
+    const doc = parseFixture();
+    const [card] = firstThreeCards(doc);
+    const anchor = findListingAnchor(card!);
+    expect(anchor).not.toBeNull();
+
+    card!.setAttribute(COMMUTE_ATTR, 'within');
+    decorateCards(doc, SETTINGS_30);
+
+    const nextSibling = anchor!.nextElementSibling;
+    expect(nextSibling?.getAttribute(BADGE_ATTR)).toBe('');
+  });
+
+  it('falls back to appending as the card\'s last child when the anchor is stripped', () => {
+    const doc = parseFixture();
+    const [card] = firstThreeCards(doc);
+    for (const anchor of [...card!.querySelectorAll('a[href]')]) {
+      anchor.remove();
+    }
+    expect(findListingAnchor(card!)).toBeNull();
+
+    card!.setAttribute(COMMUTE_ATTR, 'within');
+    decorateCards(doc, SETTINGS_30);
+
+    expect(card!.lastElementChild?.getAttribute(BADGE_ATTR)).toBe('');
+    expect(card!.querySelectorAll(`[${BADGE_ATTR}]`).length).toBe(1);
   });
 
   it('gives an "unknown" card a muted badge, and a "beyond" card no badge', () => {
@@ -118,11 +147,20 @@ describe('content.css migration (smoke)', () => {
   );
   const css = readFileSync(cssPath, 'utf8');
 
-  it('contains the new [data-commute="beyond"] selector', () => {
+  it('contains the [data-commute="beyond"] selector', () => {
     expect(css).toContain('[data-commute="beyond"]');
   });
 
   it('no longer contains the retired .commute-filtered-out class', () => {
     expect(css).not.toContain('.commute-filtered-out');
+  });
+
+  it('no longer forces position: relative on [data-commute] cards', () => {
+    expect(css).not.toContain('[data-commute] {');
+    expect(css).not.toMatch(/\[data-commute\]\s*\{[^}]*position:\s*relative/);
+  });
+
+  it('the badge is no longer absolutely positioned', () => {
+    expect(css).not.toMatch(/\.commute-badge\s*\{[^}]*position:\s*absolute/);
   });
 });
