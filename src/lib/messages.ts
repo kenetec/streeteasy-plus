@@ -33,7 +33,17 @@ export function createMessageHandler(provider: CommuteProvider) {
     sendResponse: (response?: unknown) => void
   ): boolean | undefined => {
     if (isGetIsochroneMessage(msg)) {
-      handleGetIsochrone(provider, msg.settings).then(sendResponse);
+      handleGetIsochrone(provider, msg.settings).then(
+        (response) => {
+          console.log('[commute-filter] isochrone response', {
+            settings: msg.settings,
+            ok: response.ok,
+            zones: response.ok ? response.polygon.coordinates.length : undefined,
+            error: response.ok ? undefined : response.error,
+          });
+          sendResponse(response);
+        }
+      );
       return true;
     }
     console.error('[commute-filter] unhandled message', msg);

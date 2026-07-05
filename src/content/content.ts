@@ -41,12 +41,14 @@ async function applyFilter(settings: CommuteSettings): Promise<void> {
     request
   )) as GetIsochroneResponse | undefined;
 
+  console.log('[commute-filter] received', response);
+
   if (!response?.ok) {
     const error =
       response && !response.ok ? response.error : 'no response';
     showBanner(
       `Commute filter: ${settings.maxMinutes} min by ${settings.mode} ` +
-        `from "${settings.workAddress}" — ${error}`
+      `from "${settings.workAddress}" — ${error}`
     );
     return;
   }
