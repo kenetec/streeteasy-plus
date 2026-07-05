@@ -12,7 +12,7 @@ async function getApiKey(): Promise<string | null> {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  __DEBUG__ && log('installed');
+  log('installed');
 });
 
 chrome.runtime.onMessage.addListener(

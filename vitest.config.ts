@@ -3,8 +3,9 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   // __DEBUG__ is normally injected by scripts/build.mjs at build time; tests
   // don't go through that build, so we fix it to 'true' here to exercise the
-  // log/warn code paths. This can't cover the compiled-out "false" branch —
-  // see test/log.test.ts for that limitation.
+  // log/warn code paths. This can't cover the "false" branch, where log/warn
+  // are bound to no-ops at module load — see test/log.test.ts for that
+  // limitation.
   define: {
     __DEBUG__: 'true',
   },

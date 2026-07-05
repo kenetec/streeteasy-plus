@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
 // __DEBUG__ is fixed to 'true' in vitest.config.ts, so this suite only
-// exercises the "debug on" branch. The compiled-out "off" branch (where
-// __DEBUG__ is a real build-time false and esbuild drops the log/warn
-// bodies entirely) isn't reachable from a test run — that's verified by
-// inspecting the built bundles instead (see build docs / acceptance
-// criteria), not by a unit test.
+// exercises the "debug on" branch. The "off" branch (where log/warn are
+// bound to no-ops at module load because __DEBUG__ is a real build-time
+// false) isn't reachable from a test run — that's verified by inspecting
+// the built bundles instead (see build docs / acceptance criteria), not by
+// a unit test.
 //
 // log.ts does `console.log.bind(console, PREFIX)` at *module load* time, so
 // a spy installed after the module is already imported won't be seen by the

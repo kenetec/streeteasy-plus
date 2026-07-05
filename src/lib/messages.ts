@@ -36,7 +36,7 @@ export function createMessageHandler(provider: CommuteProvider) {
     if (isGetIsochroneMessage(msg)) {
       handleGetIsochrone(provider, msg.settings).then(
         (response) => {
-          __DEBUG__ && log('isochrone response', {
+          log('isochrone response', {
             settings: msg.settings,
             ok: response.ok,
             zones: response.ok ? response.polygon.coordinates.length : undefined,
@@ -56,7 +56,7 @@ async function handleGetIsochrone(
   provider: CommuteProvider,
   settings: CommuteSettings
 ): Promise<GetIsochroneResponse> {
-  __DEBUG__ && log('GET_ISOCHRONE received', settings);
+  log('GET_ISOCHRONE received', settings);
   try {
     const origin = await provider.geocode(settings.workAddress);
     const polygon = await provider.getIsochrone(
