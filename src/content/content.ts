@@ -8,6 +8,7 @@
 import { APPLY_FILTER, CLEAR_FILTER, GET_ISOCHRONE } from '../lib/messages';
 import { removeBanner, showBanner } from './banner';
 import { classifyCards } from './classify';
+import { decorateCards } from './decorate';
 import { log } from '../lib/log';
 import type { MultiPolygonCoords } from '../lib/geometry';
 import type {
@@ -66,16 +67,18 @@ async function applyFilter(settings: CommuteSettings): Promise<void> {
     document,
     response.polygon.coordinates as MultiPolygonCoords
   );
+  decorateCards(document, { maxMinutes: settings.maxMinutes });
   log('classified', result);
   // Clears a stale error banner from a previous failed attempt — without
   // this, a successful retry after a failure left the old error visible.
   removeBanner();
 
-  // TODO (later PRs): badge/dim cards by data-commute value, and re-run via
-  // MutationObserver as new cards render.
+  // TODO (later PR): re-run classify/decorate via MutationObserver as new
+  // cards render (pagination/infinite scroll).
 }
 
 function clearFilter(): void {
   removeBanner();
-  // TODO (step 5): remove .commute-filtered-out classes and badges.
+  // TODO (later PR): remove data-commute attributes and commute-badge
+  // elements added by classify.ts / decorate.ts.
 }
