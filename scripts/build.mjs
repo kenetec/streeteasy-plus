@@ -56,6 +56,7 @@ const buildOptions = {
   logLevel: 'info',
   define: {
     __GEOAPIFY_API_KEY__: JSON.stringify(env.GEOAPIFY_API_KEY ?? ''),
+    __DEBUG__: JSON.stringify(env.DEBUG === 'true'),
   },
 };
 

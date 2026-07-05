@@ -5,13 +5,14 @@
 import { createMessageHandler } from './lib/messages';
 import { createGeoapifyProvider } from './lib/geoapify';
 import { withCache } from './lib/cache';
+import { log } from './lib/log';
 
 async function getApiKey(): Promise<string | null> {
   return __GEOAPIFY_API_KEY__ || null;
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[commute-filter] installed');
+  log('installed');
 });
 
 chrome.runtime.onMessage.addListener(
