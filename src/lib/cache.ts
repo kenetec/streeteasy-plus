@@ -13,18 +13,27 @@ import type {
 const GEOCODE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const ISOCHRONE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+// Bump the version segment whenever provider semantics change in a way
+// that can poison previously-cached values (this incident: geocodes made
+// before the NYC filter existed may have resolved far outside the region).
+// Bumping orphans old-prefixed entries rather than migrating or deleting
+// them — storage.local quota is ample and TTLs age them out on their own.
+const CACHE_VERSION = 'v2';
+const GEOCODE_KEY_PREFIX = `geo.${CACHE_VERSION}:`;
+const ISOCHRONE_KEY_PREFIX = `iso.${CACHE_VERSION}:`;
+
 function normalizeAddress(address: string): string {
   return address.trim().toLowerCase();
 }
 
-/** `iso:{address}:{minutes}:{mode}`, with the address trimmed + lowercased. */
+/** `iso.v2:{address}:{minutes}:{mode}`, with the address trimmed + lowercased. */
 export function cacheKey(settings: CommuteSettings): string {
   const address = normalizeAddress(settings.workAddress);
-  return `iso:${address}:${settings.maxMinutes}:${settings.mode}`;
+  return `${ISOCHRONE_KEY_PREFIX}${address}:${settings.maxMinutes}:${settings.mode}`;
 }
 
 function geocodeCacheKey(address: string): string {
-  return `geo:${normalizeAddress(address)}`;
+  return `${GEOCODE_KEY_PREFIX}${normalizeAddress(address)}`;
 }
 
 export async function getCached<T>(key: string): Promise<T | undefined> {

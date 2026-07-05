@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createGeoapifyProvider } from '../src/lib/geoapify';
+import { createGeoapifyProvider, NYC_BOUNDS_RECT } from '../src/lib/geoapify';
 
 function fakeResponse(status: number, body: unknown): Response {
   return {
@@ -54,13 +54,38 @@ describe('createGeoapifyProvider', () => {
       expect(url.searchParams.get('apiKey')).toBe('test-key');
     });
 
-    it('throws a typed error when there are zero results', async () => {
+    it('hard-constrains the geocode to the NYC bounds via filter=rect (not bias)', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        fakeResponse(200, {
+          features: [
+            {
+              properties: {
+                lat: 40.7484,
+                lon: -73.9857,
+                formatted: '350 5th Ave, New York, NY',
+              },
+            },
+          ],
+        })
+      );
+
+      const provider = createGeoapifyProvider(getApiKey);
+      // The incident this guards against: "165 1st Ave" with no city
+      // resolved to Hazelton, Kansas without this filter.
+      await provider.geocode('165 1st Ave');
+
+      const url = new URL(vi.mocked(fetch).mock.calls[0]?.[0] as string);
+      expect(url.searchParams.get('filter')).toBe(NYC_BOUNDS_RECT);
+      expect(url.searchParams.has('bias')).toBe(false);
+    });
+
+    it('throws a typed error mentioning the NYC area when there are zero results', async () => {
       vi.mocked(fetch).mockResolvedValue(fakeResponse(200, { features: [] }));
 
       const provider = createGeoapifyProvider(getApiKey);
 
       await expect(provider.geocode('nowhere')).rejects.toThrow(
-        'Could not find that address'
+        'Could not find that address in the NYC area'
       );
     });
   });

@@ -67,9 +67,12 @@ async function applyFilter(settings: CommuteSettings): Promise<void> {
     response.polygon.coordinates as MultiPolygonCoords
   );
   log('classified', result);
-  // Clears a stale error banner from a previous failed attempt — without
-  // this, a successful retry after a failure left the old error visible.
-  removeBanner();
+  // Replaces any previous banner (including a stale error from a failed
+  // attempt — that fix still holds, since showBanner always removes the
+  // existing one first) with a low-key confirmation. The resolved address
+  // is the user's only signal that geocoding picked the right place; see
+  // the incident note on NYC_BOUNDS_RECT in ../lib/geoapify.ts.
+  showBanner(`Commute filter active — from ${response.resolvedAddress}`);
 
   // TODO (later PRs): badge/dim cards by data-commute value, and re-run via
   // MutationObserver as new cards render.

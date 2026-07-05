@@ -64,7 +64,7 @@ async function handleGetIsochrone(
       settings.maxMinutes * 60,
       settings.mode
     );
-    return { ok: true, polygon };
+    return { ok: true, polygon, resolvedAddress: origin.formatted };
   } catch (error) {
     return {
       ok: false,

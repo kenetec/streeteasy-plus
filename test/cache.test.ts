@@ -17,8 +17,8 @@ function settings(overrides: Partial<CommuteSettings> = {}): CommuteSettings {
 }
 
 describe('cacheKey', () => {
-  it('has the iso:{address}:{minutes}:{mode} shape', () => {
-    expect(cacheKey(settings())).toBe('iso:350 5th ave:30:transit');
+  it('has the iso.v2:{address}:{minutes}:{mode} shape', () => {
+    expect(cacheKey(settings())).toBe('iso.v2:350 5th ave:30:transit');
   });
 
   it('normalizes trivially different addresses to the same key', () => {
@@ -67,8 +67,8 @@ describe('withCache', () => {
 
     expect(inner.geocode).toHaveBeenCalledTimes(1);
     expect(result).toEqual(geocoded);
-    const stored = await chrome.storage.local.get('geo:350 5th ave');
-    expect(stored['geo:350 5th ave']).toBeDefined();
+    const stored = await chrome.storage.local.get('geo.v2:350 5th ave');
+    expect(stored['geo.v2:350 5th ave']).toBeDefined();
   });
 
   it('returns the cached value on a hit without calling inner again', async () => {
@@ -87,7 +87,7 @@ describe('withCache', () => {
     const provider = withCache(inner);
 
     await provider.geocode('350 5th Ave');
-    const key = 'geo:350 5th ave';
+    const key = 'geo.v2:350 5th ave';
     const entry = (await chrome.storage.local.get(key))[key] as {
       value: GeocodedLocation;
       storedAt: number;
@@ -112,13 +112,45 @@ describe('withCache', () => {
     });
 
     await expect(provider.geocode('350 5th Ave')).rejects.toThrow('boom');
-    const key = 'geo:350 5th ave';
+    const key = 'geo.v2:350 5th ave';
     expect((await chrome.storage.local.get(key))[key]).toBeUndefined();
 
     const result = await provider.geocode('350 5th Ave');
 
     expect(geocode).toHaveBeenCalledTimes(2);
     expect(result).toEqual(geocoded);
+  });
+
+  it('ignores an old-prefix entry (the poisoned-cache incident this version bump fixes)', async () => {
+    // Simulates a pre-fix cached geocode — e.g. the Kansas mis-resolution
+    // of "165 1st Ave" — sitting under the old, un-versioned key.
+    await chrome.storage.local.set({
+      'geo:165 1st ave': {
+        value: { lat: 37.5, lng: -98.5, formatted: '165 1st Ave, Hazelton, KS' },
+        storedAt: Date.now(),
+      },
+    });
+
+    const inner = fakeInner();
+    const provider = withCache(inner);
+    const result = await provider.geocode('165 1st Ave');
+
+    // The old-prefix entry is invisible to the new lookup, so inner is
+    // still called and the real result is what comes back...
+    expect(inner.geocode).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(geocoded);
+
+    // ...and it's stored under the new prefix, not merged into the old one.
+    const newKey = 'geo.v2:165 1st ave';
+    const stored = (await chrome.storage.local.get(newKey))[newKey] as {
+      value: GeocodedLocation;
+    };
+    expect(stored.value).toEqual(geocoded);
+
+    // The stale old-prefix entry is left in place (orphaned, not migrated
+    // or deleted) — TTL expiry, not cleanup code, is what ages it out.
+    const staleKey = 'geo:165 1st ave';
+    expect((await chrome.storage.local.get(staleKey))[staleKey]).toBeDefined();
   });
 
   it('rounds isochrone coordinates to 5 decimal places before storing and returning', async () => {
