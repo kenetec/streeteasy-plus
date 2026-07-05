@@ -33,7 +33,17 @@ export function createMessageHandler(provider: CommuteProvider) {
     sendResponse: (response?: unknown) => void
   ): boolean | undefined => {
     if (isGetIsochroneMessage(msg)) {
-      handleGetIsochrone(provider, msg.settings).then(sendResponse);
+      handleGetIsochrone(provider, msg.settings).then(
+        (response) => {
+          console.log('[commute-filter] isochrone response', {
+            settings: msg.settings,
+            ok: response.ok,
+            zones: response.ok ? response.polygon.coordinates.length : undefined,
+            error: response.ok ? undefined : response.error,
+          });
+          sendResponse(response);
+        }
+      );
       return true;
     }
     console.error('[commute-filter] unhandled message', msg);
@@ -45,7 +55,7 @@ async function handleGetIsochrone(
   provider: CommuteProvider,
   settings: CommuteSettings
 ): Promise<GetIsochroneResponse> {
-  console.log('[commute-filter] GET_ISOCHRONE received (stub)', settings);
+  console.log('[commute-filter] GET_ISOCHRONE received', settings);
   try {
     const origin = await provider.geocode(settings.workAddress);
     const polygon = await provider.getIsochrone(
@@ -63,10 +73,10 @@ async function handleGetIsochrone(
 }
 
 /**
- * Stub provider: current build-plan stage has no real Geoapify integration
- * yet (step 3). Both methods reject so handleGetIsochrone's catch produces
- * the same `{ ok: false, error: 'Isochrone provider not implemented yet' }`
- * response the skeleton always returned.
+ * Test/dev fixture only — production wiring in src/background.ts uses
+ * createGeoapifyProvider instead (build-plan step 3). Both methods reject so
+ * handleGetIsochrone's catch produces
+ * `{ ok: false, error: 'Isochrone provider not implemented yet' }`.
  */
 export const stubProvider: CommuteProvider = {
   geocode() {
