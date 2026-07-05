@@ -1,11 +1,15 @@
 // Content script: runs inside StreetEasy search pages.
 //
-// Skeleton stage: proves injection works and the popup can reach us. Card
-// discovery, coordinate extraction, and filtering come in build-plan steps 2-5.
+// On a successful isochrone response, classifies discovered cards via
+// classify.ts and records the verdict as each card's data-commute
+// attribute. Badging/dimming by that attribute, CLEAR_FILTER cleanup of it,
+// and MutationObserver re-runs are separate, later PRs.
 
 import { APPLY_FILTER, CLEAR_FILTER, GET_ISOCHRONE } from '../lib/messages';
 import { removeBanner, showBanner } from './banner';
+import { classifyCards } from './classify';
 import { log } from '../lib/log';
+import type { MultiPolygonCoords } from '../lib/geometry';
 import type {
   CommuteSettings,
   GetIsochroneMessage,
@@ -54,9 +58,21 @@ async function applyFilter(settings: CommuteSettings): Promise<void> {
     return;
   }
 
-  // TODO (steps 2-5): discover listing cards, extract coordinates,
-  // point-in-polygon test against response.polygon, dim/badge cards,
-  // and re-run via MutationObserver as new cards render.
+  // response.polygon.coordinates is GeoJSON-shaped (see IsochronePolygon in
+  // ../types) but typed as plain number[][][][]; MultiPolygonCoords is the
+  // same shape with Position ([lng, lat]) tuples, so this narrows the type
+  // rather than converting any values.
+  const result = classifyCards(
+    document,
+    response.polygon.coordinates as MultiPolygonCoords
+  );
+  log('classified', result);
+  // Clears a stale error banner from a previous failed attempt — without
+  // this, a successful retry after a failure left the old error visible.
+  removeBanner();
+
+  // TODO (later PRs): badge/dim cards by data-commute value, and re-run via
+  // MutationObserver as new cards render.
 }
 
 function clearFilter(): void {

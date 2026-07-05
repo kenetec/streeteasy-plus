@@ -3,12 +3,14 @@ import {
   pointInMultiPolygon,
   pointInPolygon,
   pointInRing,
+  toPosition,
 } from '../src/lib/geometry';
 import type {
   MultiPolygonCoords,
   PolygonCoords,
   Position,
 } from '../src/lib/geometry';
+import type { LocatedCard } from '../src/content/match';
 
 // Unit square: (0,0) -> (10,0) -> (10,10) -> (0,10) -> close.
 const unitSquare: Position[] = [
@@ -162,5 +164,24 @@ describe('pointInMultiPolygon', () => {
   it('is false for an empty MultiPolygon', () => {
     const empty: MultiPolygonCoords = [];
     expect(pointInMultiPolygon([5, 5], empty)).toBe(false);
+  });
+});
+
+describe('toPosition', () => {
+  it('converts {lat, lng} to [lng, lat] — exact order, not just same values', () => {
+    expect(toPosition({ lat: 40.7, lng: -73.9 })).toEqual([-73.9, 40.7]);
+  });
+
+  it('accepts a LocatedCard-shaped object structurally, no cast needed', () => {
+    // LocatedCard (src/content/match.ts) extends LatLng — this is the
+    // structural-compatibility guarantee Goal 1 asks for, exercised here
+    // rather than just asserted by the type declaration.
+    const card: LocatedCard = {
+      element: document.createElement('div'),
+      lat: 40.7,
+      lng: -73.9,
+      listingUrl: 'https://streeteasy.com/building/x/1',
+    };
+    expect(toPosition(card)).toEqual([-73.9, 40.7]);
   });
 });

@@ -25,6 +25,22 @@ export type PolygonCoords = LinearRing[];
 /** A GeoJSON MultiPolygon's coordinates: one entry per (disjoint) polygon. */
 export type MultiPolygonCoords = PolygonCoords[];
 
+/** Named-field coordinates, as produced by JSON-LD extraction and geocoding. */
+export interface LatLng {
+  lat: number;
+  lng: number;
+}
+
+/**
+ * The ONLY sanctioned conversion from named coordinates to a GeoJSON
+ * Position. GeoJSON order is [lng, lat] — longitude first. Every other
+ * module must call this rather than constructing a Position inline; a
+ * silent swap type-checks fine and just classifies everything as outside.
+ */
+export function toPosition({ lat, lng }: LatLng): Position {
+  return [lng, lat];
+}
+
 /**
  * Ray-casting point-in-ring test (even-odd rule).
  *

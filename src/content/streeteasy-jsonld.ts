@@ -2,13 +2,12 @@
 // (and streeteasy-dom.ts). When StreetEasy's markup drifts, these two files
 // plus test/fixtures/search-results.html are the entire blast radius.
 
+import type { LatLng } from '../lib/geometry';
 import { normalizeListingUrl } from './streeteasy-dom';
 
-export interface ListingGeo {
+export interface ListingGeo extends LatLng {
   /** Normalized with the same normalizeListingUrl used for DOM cards. */
   listingUrl: string;
-  lat: number;
-  lng: number;
   /** The JSON-LD "name" — a display address, e.g. "420 East 102nd Street #1L". */
   displayName: string;
 }
