@@ -23,6 +23,8 @@ const settings: CommuteSettings = {
   mode: 'transit',
 };
 
+const RESOLVED_ADDRESS = '350 5th Ave, New York, NY 10118, USA';
+
 const ALL_ENCOMPASSING_RESPONSE: GetIsochroneResponse = {
   ok: true,
   polygon: {
@@ -39,6 +41,7 @@ const ALL_ENCOMPASSING_RESPONSE: GetIsochroneResponse = {
       ],
     ],
   },
+  resolvedAddress: RESOLVED_ADDRESS,
 };
 
 afterEach(() => {
@@ -59,7 +62,7 @@ async function loadContentScriptListener(): Promise<(msg: unknown) => void> {
 }
 
 describe('content script success path (smoke)', () => {
-  it('classifies real fixture cards and removes a stale banner on a successful response', async () => {
+  it('classifies real fixture cards and replaces a stale error banner with the resolved-address confirmation', async () => {
     // The fixture's cards + JSON-LD script live in <body> (verified in
     // PR #7), so this is a faithful reproduction of the live page.
     const parsedFixture = new DOMParser().parseFromString(
@@ -79,9 +82,18 @@ describe('content script success path (smoke)', () => {
     const listener = await loadContentScriptListener();
     listener({ type: APPLY_FILTER, settings });
 
+    // A failed Apply followed by a successful one must end with the ACTIVE
+    // banner, not the stale error — this is the classification PR's
+    // stale-banner fix, now via showBanner (which always removes any
+    // existing banner first) rather than removeBanner.
     await vi.waitFor(() => {
-      expect(document.getElementById('commute-filter-banner')).toBeNull();
+      const banner = document.getElementById('commute-filter-banner');
+      expect(banner).not.toBeNull();
+      expect(banner?.textContent).toContain(RESOLVED_ADDRESS);
     });
+    expect(document.querySelectorAll('#commute-filter-banner').length).toBe(1);
+    expect(document.getElementById('commute-filter-banner')?.textContent).not
+      .toContain('stale error');
 
     const classified = document.querySelectorAll('[data-commute]');
     expect(classified.length).toBeGreaterThanOrEqual(10);

@@ -58,9 +58,13 @@ export type PopupToContentMessage = ApplyFilterMessage | ClearFilterMessage;
 /** Messages sent from content script -> background service worker. */
 export type ContentToBackgroundMessage = GetIsochroneMessage;
 
-/** Response to GET_ISOCHRONE. */
+/**
+ * Response to GET_ISOCHRONE. `resolvedAddress` (the geocoder's formatted
+ * address) is the user's only signal that geocoding picked the right
+ * place — see the incident note on NYC_BOUNDS_RECT in src/lib/geoapify.ts.
+ */
 export type GetIsochroneResponse =
-  | { ok: true; polygon: IsochronePolygon }
+  | { ok: true; polygon: IsochronePolygon; resolvedAddress: string }
   | { ok: false; error: string };
 
 // --- Commute provider interface (design doc; implemented in a later step) ---
