@@ -49,6 +49,7 @@ describe('createMessageHandler', () => {
       expect(sendResponse).toHaveBeenCalledWith({
         ok: true,
         polygon: { type: 'MultiPolygon', coordinates: [] },
+        resolvedAddress: geocoded.formatted,
       });
     });
   });
@@ -114,7 +115,7 @@ describe('createMessageHandler', () => {
     });
   });
 
-  it('caches repeated identical requests so the inner provider runs once', async () => {
+  it('caches repeated identical requests so the inner provider runs once, resolvedAddress included on both paths', async () => {
     const inner = createFakeProvider();
     const handler = createMessageHandler(withCache(inner));
 
@@ -129,6 +130,15 @@ describe('createMessageHandler', () => {
     expect(first).toHaveBeenCalledWith({
       ok: true,
       polygon: { type: 'MultiPolygon', coordinates: [] },
+      resolvedAddress: geocoded.formatted,
+    });
+    // withCache caches the full GeocodedLocation (including `formatted`),
+    // so the cache-hit path (this second call) carries resolvedAddress too
+    // — verified explicitly here rather than assumed.
+    expect(second).toHaveBeenCalledWith({
+      ok: true,
+      polygon: { type: 'MultiPolygon', coordinates: [] },
+      resolvedAddress: geocoded.formatted,
     });
     expect(second).toHaveBeenCalledWith(first.mock.calls[0]?.[0]);
     expect(inner.getIsochrone).toHaveBeenCalledTimes(1);

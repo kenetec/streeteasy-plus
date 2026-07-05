@@ -17,6 +17,15 @@ const ISOLINE_URL = 'https://api.geoapify.com/v1/isoline';
 const POLL_DELAY_MS = 1500;
 const MAX_POLL_ATTEMPTS = 3;
 
+/**
+ * lng1,lat1,lng2,lat2 — covers the five boroughs plus the NJ/Westchester
+ * commuter fringe. Hardcoded deliberately, not a placeholder: StreetEasy
+ * only lists NYC listings, so a work address outside this box is never
+ * valid input for this extension (see the incident this constant fixes —
+ * an unconstrained geocode of "165 1st Ave" resolved to Hazelton, Kansas).
+ */
+export const NYC_BOUNDS_RECT = 'rect:-74.3,40.45,-73.5,41.0';
+
 interface GeoapifyGeocodeFeature {
   properties: { lat: number; lon: number; formatted: string };
 }
@@ -46,7 +55,16 @@ function delay(ms: number): Promise<void> {
 }
 
 function geocodeUrl(address: string, apiKey: string): string {
-  const params = new URLSearchParams({ text: address, limit: '1', apiKey });
+  const params = new URLSearchParams({
+    text: address,
+    limit: '1',
+    // `filter` hard-excludes results outside the box — unlike Geoapify's
+    // proximity-reordering parameter, which only nudges ranking and can
+    // still return a distant exact match. Do not swap this for that softer
+    // proximity-bias parameter.
+    filter: NYC_BOUNDS_RECT,
+    apiKey,
+  });
   return `${GEOCODE_URL}?${params.toString()}`;
 }
 
@@ -160,7 +178,7 @@ export function createGeoapifyProvider(
       }
       const feature = body?.features?.[0];
       if (!feature) {
-        throw new Error('Could not find that address');
+        throw new Error('Could not find that address in the NYC area');
       }
       return {
         lat: feature.properties.lat,
