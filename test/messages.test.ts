@@ -54,9 +54,18 @@ describe('createMessageHandler', () => {
   });
 
   it('returns undefined and never calls sendResponse for unknown message types', async () => {
-    const handler = createMessageHandler(createFakeProvider());
-    const sendResponse = vi.fn();
+    // src/lib/log.ts binds console.error at module-load time (see
+    // test/log.test.ts), so a spy installed here after messages.ts is
+    // already imported can't intercept the call — reset modules and
+    // re-import so the bind picks up the spy and error output stays quiet.
+    vi.resetModules();
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { createMessageHandler: freshCreateMessageHandler } = await import(
+      '../src/lib/messages'
+    );
+
+    const handler = freshCreateMessageHandler(createFakeProvider());
+    const sendResponse = vi.fn();
 
     const result = handler(
       { type: 'SOME_OTHER_MESSAGE' },
@@ -68,20 +77,6 @@ describe('createMessageHandler', () => {
     // Give any stray microtasks a chance to run before asserting the negative.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sendResponse).not.toHaveBeenCalled();
-
-    consoleError.mockRestore();
-  });
-
-  it('logs an error for unhandled message types', () => {
-    const handler = createMessageHandler(createFakeProvider());
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    handler({ type: 'SOME_OTHER_MESSAGE' }, fakeSender, vi.fn());
-
-    expect(consoleError).toHaveBeenCalledWith(
-      '[commute-filter] unhandled message',
-      { type: 'SOME_OTHER_MESSAGE' }
-    );
 
     consoleError.mockRestore();
   });

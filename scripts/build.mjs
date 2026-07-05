@@ -54,8 +54,13 @@ const buildOptions = {
   target: 'chrome110',
   sourcemap: true,
   logLevel: 'info',
+  // Needed for __DEBUG__-gated code to actually fold away (see src/lib/log.ts
+  // and its call sites) — without it esbuild substitutes the constant but
+  // leaves `false ? a : b` and `false && expr` unsimplified in the output.
+  minifySyntax: true,
   define: {
     __GEOAPIFY_API_KEY__: JSON.stringify(env.GEOAPIFY_API_KEY ?? ''),
+    __DEBUG__: JSON.stringify(env.DEBUG === 'true'),
   },
 };
 

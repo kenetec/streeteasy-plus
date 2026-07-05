@@ -5,6 +5,7 @@
 
 import { APPLY_FILTER, CLEAR_FILTER, GET_ISOCHRONE } from '../lib/messages';
 import { removeBanner, showBanner } from './banner';
+import { log } from '../lib/log';
 import type {
   CommuteSettings,
   GetIsochroneMessage,
@@ -12,15 +13,15 @@ import type {
   PopupToContentMessage,
 } from '../types';
 
-console.log('[commute-filter] content script loaded on', location.pathname);
+__DEBUG__ && log('content script loaded on', location.pathname);
 
 chrome.runtime.onMessage.addListener((msg: unknown) => {
   const message = msg as PopupToContentMessage;
   if (message?.type === APPLY_FILTER) {
-    console.log('[commute-filter] APPLY_FILTER received', message.settings);
+    __DEBUG__ && log('APPLY_FILTER received', message.settings);
     applyFilter(message.settings);
   } else if (message?.type === CLEAR_FILTER) {
-    console.log('[commute-filter] CLEAR_FILTER received');
+    __DEBUG__ && log('CLEAR_FILTER received');
     clearFilter();
   }
 });
@@ -41,7 +42,7 @@ async function applyFilter(settings: CommuteSettings): Promise<void> {
     request
   )) as GetIsochroneResponse | undefined;
 
-  console.log('[commute-filter] received', response);
+  __DEBUG__ && log('received', response);
 
   if (!response?.ok) {
     const error =

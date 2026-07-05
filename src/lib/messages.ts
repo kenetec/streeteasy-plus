@@ -8,6 +8,7 @@ import type {
   GetIsochroneMessage,
   GetIsochroneResponse,
 } from '../types';
+import { error as logError, log } from './log';
 
 export const APPLY_FILTER = 'APPLY_FILTER' as const;
 export const CLEAR_FILTER = 'CLEAR_FILTER' as const;
@@ -35,7 +36,7 @@ export function createMessageHandler(provider: CommuteProvider) {
     if (isGetIsochroneMessage(msg)) {
       handleGetIsochrone(provider, msg.settings).then(
         (response) => {
-          console.log('[commute-filter] isochrone response', {
+          __DEBUG__ && log('isochrone response', {
             settings: msg.settings,
             ok: response.ok,
             zones: response.ok ? response.polygon.coordinates.length : undefined,
@@ -46,7 +47,7 @@ export function createMessageHandler(provider: CommuteProvider) {
       );
       return true;
     }
-    console.error('[commute-filter] unhandled message', msg);
+    logError('unhandled message', msg);
     return undefined;
   };
 }
@@ -55,7 +56,7 @@ async function handleGetIsochrone(
   provider: CommuteProvider,
   settings: CommuteSettings
 ): Promise<GetIsochroneResponse> {
-  console.log('[commute-filter] GET_ISOCHRONE received', settings);
+  __DEBUG__ && log('GET_ISOCHRONE received', settings);
   try {
     const origin = await provider.geocode(settings.workAddress);
     const polygon = await provider.getIsochrone(
