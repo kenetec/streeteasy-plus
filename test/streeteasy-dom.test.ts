@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   discoverCards,
   findListingAnchor,
+  findResultsContainer,
   normalizeListingUrl,
 } from '../src/content/streeteasy-dom';
 
@@ -93,6 +94,17 @@ describe('findListingAnchor (fixture)', () => {
       anchor.remove();
     }
     expect(findListingAnchor(card)).toBeNull();
+  });
+});
+
+describe('findResultsContainer (fixture)', () => {
+  it('returns null — the fixture has no stable container hook', () => {
+    // Confirmed by walking up from [data-testid="listing-card"] in the
+    // fixture (li -> ul -> div -> div -> div -> main): no data-testid,
+    // role, or any attribute besides build-hashed CSS module class names
+    // (e.g. "SearchResults_container__zgUq4"). See findResultsContainer's
+    // doc comment in streeteasy-dom.ts for the full ancestor chain.
+    expect(findResultsContainer(doc)).toBeNull();
   });
 });
 

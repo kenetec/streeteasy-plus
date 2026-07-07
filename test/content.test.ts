@@ -103,3 +103,94 @@ describe('content script success path (smoke)', () => {
     );
   });
 });
+
+describe('content script MutationObserver wiring', () => {
+  // Fake timers throughout: the observer's debounce uses setTimeout, and
+  // vi.advanceTimersByTimeAsync(0) is also how the fire-and-forget
+  // applyFilter() call (the listener never awaits it) gets a chance to
+  // settle its single internal await — verified empirically in the
+  // implementation work for this PR.
+  it('re-classifies a card whose data-commute/badge were wiped by a simulated React replacement', async () => {
+    vi.useFakeTimers();
+    try {
+      const parsedFixture = new DOMParser().parseFromString(
+        fixtureHtml,
+        'text/html'
+      );
+      document.body.innerHTML = parsedFixture.body.innerHTML;
+
+      (chrome.runtime.sendMessage as unknown as Mock).mockResolvedValue(
+        ALL_ENCOMPASSING_RESPONSE
+      );
+
+      const listener = await loadContentScriptListener();
+      listener({ type: APPLY_FILTER, settings });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const cards = [...document.querySelectorAll('[data-commute]')];
+      expect(cards.length).toBeGreaterThanOrEqual(10);
+
+      // Simulate React replacing a card's DOM node: clone one, strip the
+      // attribute/badge our first classify+decorate pass added, and swap
+      // it in for the original — exactly the field-observed failure mode
+      // this PR fixes.
+      const original = cards[0]!;
+      const replacement = original.cloneNode(true) as Element;
+      replacement.removeAttribute('data-commute');
+      replacement.querySelector('[data-commute-badge]')?.remove();
+      original.replaceWith(replacement);
+      expect(replacement.hasAttribute('data-commute')).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(replacement.getAttribute('data-commute')).toBe('within');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not stack a second observer on a subsequent successful Apply', async () => {
+    vi.useFakeTimers();
+    try {
+      const parsedFixture = new DOMParser().parseFromString(
+        fixtureHtml,
+        'text/html'
+      );
+      document.body.innerHTML = parsedFixture.body.innerHTML;
+
+      (chrome.runtime.sendMessage as unknown as Mock).mockResolvedValue(
+        ALL_ENCOMPASSING_RESPONSE
+      );
+      const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      const listener = await loadContentScriptListener();
+      listener({ type: APPLY_FILTER, settings });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // A second successful Apply (module state persists across calls to
+      // the same registered listener) must replace, not stack, the
+      // observer — startFilterObserver disconnects the first handle.
+      listener({ type: APPLY_FILTER, settings });
+      await vi.advanceTimersByTimeAsync(0);
+
+      consoleLog.mockClear();
+      document.body.appendChild(document.createElement('div'));
+      await vi.advanceTimersByTimeAsync(250);
+
+      // Two live observers would each debounce independently and log their
+      // own "re-classified" line for the same single mutation.
+      const reclassifyLogLines = consoleLog.mock.calls.filter((args) =>
+        args.some(
+          (arg) =>
+            typeof arg === 'string' &&
+            arg.includes('re-classified after DOM change')
+        )
+      );
+      expect(reclassifyLogLines.length).toBe(1);
+
+      consoleLog.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
