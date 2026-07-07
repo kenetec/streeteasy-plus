@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, test } from 'vitest';
 import {
   BADGE_ATTR,
   decorateCards,
@@ -163,4 +163,18 @@ describe('content.css migration (smoke)', () => {
   it('the badge is no longer absolutely positioned', () => {
     expect(css).not.toMatch(/\.commute-badge\s*\{[^}]*position:\s*absolute/);
   });
+});
+
+
+test('content.css dims beyond-cards and restores on hover', () => {
+  const css = readFileSync('src/content/content.css', 'utf8');
+
+  // selector must exist WITH its dimming declaration in the same block
+  expect(css).toMatch(/\[data-commute="beyond"\]\s*\{[^}]*opacity:\s*0?\.25/);
+
+  // hover-restore is part of the contract too — it died in the same purge
+  expect(css).toMatch(/\[data-commute="beyond"\]:hover\s*\{[^}]*opacity:\s*0?\.6/);
+
+  // keep the existing negative assertions
+  expect(css).not.toContain('.commute-filtered-out');
 });
