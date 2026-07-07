@@ -2,13 +2,20 @@
 //
 // On a successful isochrone response, classifies discovered cards via
 // classify.ts and records the verdict as each card's data-commute
-// attribute. Badging/dimming by that attribute, CLEAR_FILTER cleanup of it,
-// and MutationObserver re-runs are separate, later PRs.
+// attribute, then badges/dims via decorate.ts. Because StreetEasy is a
+// React app, scrolling/map interaction/sorting/pagination replace or add
+// card DOM nodes after Apply, wiping our attributes or leaving new cards
+// undecorated — so a MutationObserver (observer.ts) re-runs classify+
+// decorate whenever that happens. CLEAR_FILTER cleanup of attributes/
+// badges is a separate, later PR.
 
 import { APPLY_FILTER, CLEAR_FILTER, GET_ISOCHRONE } from '../lib/messages';
 import { removeBanner, showBanner } from './banner';
 import { classifyCards } from './classify';
 import { decorateCards } from './decorate';
+import { startObserving } from './observer';
+import type { ObserverHandle } from './observer';
+import { findResultsContainer } from './streeteasy-dom';
 import { log } from '../lib/log';
 import type { MultiPolygonCoords } from '../lib/geometry';
 import type {
@@ -17,6 +24,21 @@ import type {
   GetIsochroneResponse,
   PopupToContentMessage,
 } from '../types';
+
+interface ActiveFilter {
+  polygon: MultiPolygonCoords;
+  maxMinutes: number;
+}
+
+// Content scripts die with the page — a fresh load re-applies from
+// chrome.storage.sync (below) — so module-level state is the correct
+// lifetime for "what filter is currently active" between re-renders.
+let activeFilter: ActiveFilter | undefined;
+
+// Left accessible via module state (not wired to CLEAR_FILTER) rather than
+// disconnected here: the future CLEAR PR owns full teardown (attribute/
+// badge sweep + disconnecting this observer) and needs this handle.
+let observerHandle: ObserverHandle | undefined;
 
 log('content script loaded on', location.pathname);
 
@@ -63,10 +85,8 @@ async function applyFilter(settings: CommuteSettings): Promise<void> {
   // ../types) but typed as plain number[][][][]; MultiPolygonCoords is the
   // same shape with Position ([lng, lat]) tuples, so this narrows the type
   // rather than converting any values.
-  const result = classifyCards(
-    document,
-    response.polygon.coordinates as MultiPolygonCoords
-  );
+  const polygon = response.polygon.coordinates as MultiPolygonCoords;
+  const result = classifyCards(document, polygon);
   decorateCards(document, { maxMinutes: settings.maxMinutes });
   log('classified', result);
   // Replaces any previous banner (including a stale error from a failed
@@ -76,12 +96,38 @@ async function applyFilter(settings: CommuteSettings): Promise<void> {
   // the incident note on NYC_BOUNDS_RECT in ../lib/geoapify.ts.
   showBanner(`Commute filter active — from ${response.resolvedAddress}`);
 
-  // TODO (later PR): re-run classify/decorate via MutationObserver as new
-  // cards render (pagination/infinite scroll).
+  // A subsequent successful Apply (new settings) replaces this state and
+  // must not stack a second observer — startFilterObserver disconnects any
+  // existing handle before starting a new one.
+  activeFilter = { polygon, maxMinutes: settings.maxMinutes };
+  startFilterObserver();
+}
+
+/**
+ * (Re)starts DOM-change observation for the active filter. Idempotent:
+ * disconnects any previously running observer first, so calling this again
+ * (e.g. on a later successful Apply) never leaves two observers live.
+ */
+function startFilterObserver(): void {
+  observerHandle?.disconnect();
+
+  // findResultsContainer returns null on the current fixture (no stable
+  // hook exists — see its doc comment in streeteasy-dom.ts), so this falls
+  // back to document.body; the observer's debounce + relevance filter keep
+  // body-level observation cheap.
+  const target = findResultsContainer(document) ?? document.body;
+
+  observerHandle = startObserving(target, () => {
+    if (!activeFilter) return;
+    const rerunResult = classifyCards(document, activeFilter.polygon);
+    decorateCards(document, { maxMinutes: activeFilter.maxMinutes });
+    log('re-classified after DOM change', rerunResult);
+  });
 }
 
 function clearFilter(): void {
   removeBanner();
   // TODO (later PR): remove data-commute attributes and commute-badge
-  // elements added by classify.ts / decorate.ts.
+  // elements added by classify.ts / decorate.ts, and disconnect
+  // observerHandle.
 }

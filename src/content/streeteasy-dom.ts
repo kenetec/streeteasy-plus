@@ -81,3 +81,18 @@ export function normalizeListingUrl(href: string): string | null {
 
   return `${url.protocol}//${url.hostname.toLowerCase()}${pathname}`;
 }
+
+/**
+ * A stable ancestor of the listing cards to hand a MutationObserver, if one
+ * exists. Checked against the fixture: walking up from
+ * `[data-testid="listing-card"]` (li -> ul -> div -> div -> div -> main)
+ * turns up no data-testid, role, or any other non-build-hashed attribute —
+ * only CSS-module class names like "SearchResults_container__zgUq4", whose
+ * suffix changes on every StreetEasy deploy. Hardcoding one of those would
+ * be exactly the kind of fragile selector this file exists to avoid.
+ * Returns null so callers fall back to observing document.body; the
+ * observer's debounce + relevance filter (see observer.ts) keep that cheap.
+ */
+export function findResultsContainer(doc: Document): Element | null {
+  return null;
+}
