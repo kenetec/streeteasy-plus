@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   discoverCards,
+  findListingAnchor,
   normalizeListingUrl,
 } from '../src/content/streeteasy-dom';
 
@@ -72,6 +73,26 @@ describe('discoverCards (synthetic)', () => {
       '<div data-testid="listing-card"><a href="http://[::1">bad</a></div>'
     );
     expect(discoverCards(fragmentDoc)).toEqual([]);
+  });
+});
+
+describe('findListingAnchor (fixture)', () => {
+  it('returns the address anchor on a real fixture card', () => {
+    const card = doc.querySelector('[data-testid="listing-card"]');
+    const anchor = findListingAnchor(card!);
+    expect(anchor).not.toBeNull();
+    expect(anchor?.getAttribute('href')).toContain('/building/');
+  });
+
+  it('returns null on a card whose anchor has been stripped', () => {
+    // Clone so mutating this card doesn't affect other tests sharing `doc`.
+    const card = doc
+      .querySelector('[data-testid="listing-card"]')!
+      .cloneNode(true) as Element;
+    for (const anchor of [...card.querySelectorAll('a[href]')]) {
+      anchor.remove();
+    }
+    expect(findListingAnchor(card)).toBeNull();
   });
 });
 

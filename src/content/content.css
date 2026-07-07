@@ -1,12 +1,39 @@
-/* Applied to listings outside the isochrone (used from step 5 onward).
-   Dim rather than hide so users can see what was excluded. */
-.commute-filtered-out {
+/* Every class/id this extension injects into the page starts with
+   "commute-" — see decorate.ts (badges) and banner.ts (#commute-filter-
+   banner) for what actually creates these elements. */
+
+/* "beyond": dimming IS the signal — no badge. Restored on hover so users
+   can still inspect what was excluded. */
+[data-commute="beyond"] {
   opacity: 0.25;
   transition: opacity 0.2s ease;
 }
 
-.commute-filtered-out:hover {
+[data-commute="beyond"]:hover {
   opacity: 0.6;
+}
+
+/* Badge added/removed by decorate.ts for "within" and "unknown" cards.
+   Inserted in normal flow right after the listing address link (or
+   appended to the card as a fallback) — NOT absolutely positioned over the
+   photo, which collided with StreetEasy's own "Enhanced gallery"/"3D tour"
+   overlay buttons in the top-right photo corner. Base styling is the
+   high-contrast "within" look; .commute-badge--unknown overrides it to a
+   visually muted scheme so it doesn't read as a match. */
+.commute-badge {
+  display: inline-block;
+  margin: 4px 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font: 600 11px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: #1f2733;
+  color: #fff;
+  pointer-events: none; /* never intercept clicks meant for the listing link */
+}
+
+.commute-badge--unknown {
+  background: #d8dde3;
+  color: #4b5563;
 }
 
 /* Skeleton verification banner shown by content.js */

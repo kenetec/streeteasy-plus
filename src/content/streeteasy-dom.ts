@@ -21,27 +21,41 @@ export interface DiscoveredCard {
 export function discoverCards(root: ParentNode): DiscoveredCard[] {
   const cards: DiscoveredCard[] = [];
   for (const element of root.querySelectorAll('[data-testid="listing-card"]')) {
-    const anchors = element.querySelectorAll('a[href]');
-    for (const anchor of anchors) {
-      const href = anchor.getAttribute('href');
-      if (!href) continue;
+    const anchor = findListingAnchor(element);
+    if (!anchor) continue;
 
-      let resolved: URL;
-      try {
-        resolved = new URL(href, 'https://streeteasy.com');
-      } catch {
-        continue;
-      }
-      if (!LISTING_HREF_PATTERN.test(resolved.pathname)) continue;
+    const href = anchor.getAttribute('href');
+    if (!href) continue;
+    const listingUrl = normalizeListingUrl(href);
+    if (!listingUrl) continue;
 
-      const listingUrl = normalizeListingUrl(href);
-      if (!listingUrl) continue;
-
-      cards.push({ element, listingUrl });
-      break;
-    }
+    cards.push({ element, listingUrl });
   }
   return cards;
+}
+
+/**
+ * The first anchor within `card` whose href points at a listing
+ * (`/building/...` or `/rental/...`), or null if the card has none. Used
+ * both by `discoverCards` (to derive the card's listingUrl) and by
+ * decorate.ts (to place the badge right after the address link).
+ */
+export function findListingAnchor(card: Element): HTMLAnchorElement | null {
+  for (const anchor of card.querySelectorAll('a[href]')) {
+    const href = anchor.getAttribute('href');
+    if (!href) continue;
+
+    let resolved: URL;
+    try {
+      resolved = new URL(href, 'https://streeteasy.com');
+    } catch {
+      continue;
+    }
+    if (!LISTING_HREF_PATTERN.test(resolved.pathname)) continue;
+
+    return anchor as HTMLAnchorElement;
+  }
+  return null;
 }
 
 /**
