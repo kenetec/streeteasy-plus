@@ -16,6 +16,7 @@ import { clearDecorations, decorateCards } from './decorate';
 import { startObserving } from './observer';
 import type { ObserverHandle } from './observer';
 import { findResultsContainer } from './streeteasy-dom';
+import { formatSummary } from './summary';
 import { log } from '../lib/log';
 import type { MultiPolygonCoords } from '../lib/geometry';
 import type {
@@ -28,6 +29,9 @@ import type {
 interface ActiveFilter {
   polygon: MultiPolygonCoords;
   maxMinutes: number;
+  // Needed by the observer callback to re-render the banner on every
+  // re-classification, not just the initial Apply.
+  resolvedAddress: string;
 }
 
 // Content scripts die with the page — a fresh load re-applies from
@@ -90,15 +94,19 @@ async function applyFilter(settings: CommuteSettings): Promise<void> {
   log('classified', result);
   // Replaces any previous banner (including a stale error from a failed
   // attempt — that fix still holds, since showBanner always removes the
-  // existing one first) with a low-key confirmation. The resolved address
-  // is the user's only signal that geocoding picked the right place; see
-  // the incident note on NYC_BOUNDS_RECT in ../lib/geoapify.ts.
-  showBanner(`Commute filter active — from ${response.resolvedAddress}`);
+  // existing one first) with the address + live counts. The resolved
+  // address is the user's only signal that geocoding picked the right
+  // place; see the incident note on NYC_BOUNDS_RECT in ../lib/geoapify.ts.
+  showBanner(formatSummary(response.resolvedAddress, result));
 
   // A subsequent successful Apply (new settings) replaces this state and
   // must not stack a second observer — startFilterObserver disconnects any
   // existing handle before starting a new one.
-  activeFilter = { polygon, maxMinutes: settings.maxMinutes };
+  activeFilter = {
+    polygon,
+    maxMinutes: settings.maxMinutes,
+    resolvedAddress: response.resolvedAddress,
+  };
   startFilterObserver();
 }
 
@@ -117,10 +125,18 @@ function startFilterObserver(): void {
   const target = findResultsContainer(document) ?? document.body;
 
   observerHandle = startObserving(target, () => {
-    if (!activeFilter) return;
-    const rerunResult = classifyCards(document, activeFilter.polygon);
-    decorateCards(document, { maxMinutes: activeFilter.maxMinutes });
+    // Captured once, up front: classifyCards/decorateCards/showBanner
+    // below are synchronous, so activeFilter can't change mid-callback
+    // today — but reading a single snapshot (rather than the module
+    // variable at each use) keeps this correct even if that changes, and
+    // makes the guard explicit: a filter cleared between the debounce
+    // firing and this callback running must never resurrect a banner.
+    const current = activeFilter;
+    if (!current) return;
+    const rerunResult = classifyCards(document, current.polygon);
+    decorateCards(document, { maxMinutes: current.maxMinutes });
     log('re-classified after DOM change', rerunResult);
+    showBanner(formatSummary(current.resolvedAddress, rerunResult));
   });
 }
 

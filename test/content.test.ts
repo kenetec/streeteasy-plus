@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import { APPLY_FILTER, CLEAR_FILTER } from '../src/lib/messages';
 import { showBanner } from '../src/content/banner';
+import { discoverCards } from '../src/content/streeteasy-dom';
 import type { CommuteSettings, GetIsochroneResponse } from '../src/types';
 
 const fixturePath = path.join(
@@ -346,6 +347,126 @@ describe('content script CLEAR_FILTER teardown', () => {
       await vi.advanceTimersByTimeAsync(250);
 
       expect(replacement.getAttribute('data-commute')).toBe('within');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('content script summary banner', () => {
+  it('shows the resolved address and live counts from the fixture classification after Apply', async () => {
+    vi.useFakeTimers();
+    try {
+      const parsedFixture = new DOMParser().parseFromString(
+        fixtureHtml,
+        'text/html'
+      );
+      document.body.innerHTML = parsedFixture.body.innerHTML;
+
+      (chrome.runtime.sendMessage as unknown as Mock).mockResolvedValue(
+        ALL_ENCOMPASSING_RESPONSE
+      );
+
+      const listener = await loadContentScriptListener();
+      listener({ type: APPLY_FILTER, settings });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The all-encompassing polygon marks every one of the fixture's 14
+      // cards "within" (see the MutationObserver PR's smoke test), so the
+      // unknown segment is elided and 0 beyond is kept.
+      expect(document.getElementById('commute-filter-banner')?.textContent).toBe(
+        `Commute filter active — from ${RESOLVED_ADDRESS} · 14 within · 0 beyond`
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('recounts and updates the banner text when a DOM mutation actually changes the classification', async () => {
+    vi.useFakeTimers();
+    try {
+      const parsedFixture = new DOMParser().parseFromString(
+        fixtureHtml,
+        'text/html'
+      );
+      document.body.innerHTML = parsedFixture.body.innerHTML;
+
+      (chrome.runtime.sendMessage as unknown as Mock).mockResolvedValue(
+        ALL_ENCOMPASSING_RESPONSE
+      );
+
+      const listener = await loadContentScriptListener();
+      listener({ type: APPLY_FILTER, settings });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(
+        document.getElementById('commute-filter-banner')?.textContent
+      ).toBe(`Commute filter active — from ${RESOLVED_ADDRESS} · 14 within · 0 beyond`);
+
+      // Make one card's listing unresolvable — same technique as
+      // classify.test.ts's "unknown path" test — so re-classification
+      // will flip it from "within" to "unknown". Editing the ld+json
+      // script's text content alone is a text-node-only mutation (own/
+      // irrelevant, per observer.ts), so it does NOT itself trigger a
+      // re-count; a separate real mutation (below) is what does.
+      //
+      // Uses a URL known to back exactly one fixture card (not one of the
+      // fixture's two cross-listed duplicate pairs — see classify.test.ts's
+      // KNOWN_URL) so exactly one card flips, not two.
+      const targetUrl = discoverCards(document).find(
+        (card) => card.listingUrl === 'https://streeteasy.com/building/the34/617'
+      )?.listingUrl;
+      expect(targetUrl).toBeDefined();
+      const script = document.querySelector(
+        'script[type="application/ld+json"]'
+      )!;
+      const data = JSON.parse(script.textContent ?? '{}');
+      data['@graph'] = (data['@graph'] as Array<Record<string, unknown>>).filter(
+        (node) => !(node['@type'] === 'Apartment' && node.url === targetUrl)
+      );
+      script.textContent = JSON.stringify(data);
+
+      document.body.appendChild(document.createElement('div'));
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(
+        document.getElementById('commute-filter-banner')?.textContent
+      ).toBe(
+        `Commute filter active — from ${RESOLVED_ADDRESS} · 13 within · 0 beyond · 1 unknown`
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('CLEAR then a later DOM mutation never resurrects the banner', async () => {
+    vi.useFakeTimers();
+    try {
+      const parsedFixture = new DOMParser().parseFromString(
+        fixtureHtml,
+        'text/html'
+      );
+      document.body.innerHTML = parsedFixture.body.innerHTML;
+
+      (chrome.runtime.sendMessage as unknown as Mock).mockResolvedValue(
+        ALL_ENCOMPASSING_RESPONSE
+      );
+
+      const listener = await loadContentScriptListener();
+      listener({ type: APPLY_FILTER, settings });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(document.getElementById('commute-filter-banner')).not.toBeNull();
+
+      listener({ type: CLEAR_FILTER });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(document.getElementById('commute-filter-banner')).toBeNull();
+
+      // The interleave guard: a cleared filter state must never let a
+      // later debounced re-classification resurrect the banner.
+      document.body.appendChild(document.createElement('div'));
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(document.getElementById('commute-filter-banner')).toBeNull();
     } finally {
       vi.useRealTimers();
     }
