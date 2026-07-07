@@ -1,17 +1,18 @@
-// Adds/updates/removes the commute badge for classify.ts's verdicts. Pure
-// DOM module: operates entirely on [data-commute] elements set elsewhere —
-// no StreetEasy selectors of its own, no chrome APIs, no logging. Dimming
-// "beyond" cards is handled by content.css alone (attribute selector, no
-// badge). findListingAnchor is imported (not duplicated) from
-// streeteasy-dom.ts, which owns the actual selector.
+// Adds/updates/removes the commute badge for classify.ts's verdicts, and
+// (clearDecorations) sweeps every injected badge/attribute back out for
+// CLEAR_FILTER. Pure DOM module: operates entirely on [data-commute]
+// elements set elsewhere — no StreetEasy selectors of its own, no chrome
+// APIs, no logging. Dimming "beyond" cards is handled by content.css alone
+// (attribute selector, no badge). findListingAnchor is imported (not
+// duplicated) from streeteasy-dom.ts, which owns the actual selector.
 
 import { COMMUTE_ATTR } from './classify';
 import { findListingAnchor } from './streeteasy-dom';
 
 /**
- * Contract for the future CLEAR_FILTER cleanup PR: every badge this
- * extension injects carries this attribute, so removal is a single
- * `[data-commute-badge]` selector regardless of verdict/text.
+ * Every badge this extension injects carries this attribute, so
+ * clearDecorations can remove all of them with one `[data-commute-badge]`
+ * selector regardless of verdict/text.
  */
 export const BADGE_ATTR = 'data-commute-badge';
 
@@ -87,4 +88,23 @@ function createBadge(card: Element): Element {
   }
 
   return badge;
+}
+
+/**
+ * Removes every badge and verdict stamp this extension has added under
+ * `root`. This is the ENTIRE cleanup: dimming "beyond" cards is keyed off
+ * the [data-commute] attribute in content.css alone (no class, no inline
+ * style), so removing the attribute un-dims automatically — do not add an
+ * opacity/style reset here, there is nothing to reset.
+ *
+ * Pure/idempotent: running this on an already-clean document (or one with
+ * no badges/attributes at all) is a no-op.
+ */
+export function clearDecorations(root: ParentNode): void {
+  for (const badge of root.querySelectorAll(`[${BADGE_ATTR}]`)) {
+    badge.remove();
+  }
+  for (const card of root.querySelectorAll(`[${COMMUTE_ATTR}]`)) {
+    card.removeAttribute(COMMUTE_ATTR);
+  }
 }

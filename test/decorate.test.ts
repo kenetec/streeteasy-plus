@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, test } from 'vitest';
 import {
   BADGE_ATTR,
+  clearDecorations,
   decorateCards,
   type DecorateSettings,
 } from '../src/content/decorate';
@@ -137,6 +138,74 @@ describe('decorateCards', () => {
       expect(card.hasAttribute(COMMUTE_ATTR)).toBe(false);
       expect(card.querySelectorAll(`[${BADGE_ATTR}]`).length).toBe(0);
     }
+  });
+});
+
+describe('clearDecorations', () => {
+  it('removes every [data-commute] attribute and [data-commute-badge] element, leaving cards otherwise intact', () => {
+    const doc = parseFixture();
+    const cards = firstThreeCards(doc);
+    cards[0]!.setAttribute(COMMUTE_ATTR, 'within');
+    cards[1]!.setAttribute(COMMUTE_ATTR, 'unknown');
+    cards[2]!.setAttribute(COMMUTE_ATTR, 'beyond');
+    decorateCards(doc, SETTINGS_30);
+
+    // Sanity: the setup actually produced what we're about to clear.
+    expect(doc.querySelectorAll(`[${COMMUTE_ATTR}]`).length).toBe(3);
+    expect(doc.querySelectorAll(`[${BADGE_ATTR}]`).length).toBe(2);
+    const anchorHref = findListingAnchor(cards[0]!)?.getAttribute('href');
+
+    clearDecorations(doc);
+
+    expect(doc.querySelectorAll(`[${COMMUTE_ATTR}]`).length).toBe(0);
+    expect(doc.querySelectorAll(`[${BADGE_ATTR}]`).length).toBe(0);
+    for (const card of cards) {
+      expect(card.hasAttribute(COMMUTE_ATTR)).toBe(false);
+    }
+    // The card itself and its listing anchor survive the sweep untouched.
+    expect(findListingAnchor(cards[0]!)?.getAttribute('href')).toBe(
+      anchorHref
+    );
+  });
+
+  it('is a no-op on an untouched document', () => {
+    const doc = parseFixture();
+    expect(() => clearDecorations(doc)).not.toThrow();
+    expect(doc.querySelectorAll(`[${COMMUTE_ATTR}]`).length).toBe(0);
+    expect(doc.querySelectorAll(`[${BADGE_ATTR}]`).length).toBe(0);
+  });
+
+  it('round-trips: clear, then re-stamp + re-decorate fully restores classification', () => {
+    const doc = parseFixture();
+    const cards = firstThreeCards(doc);
+    cards[0]!.setAttribute(COMMUTE_ATTR, 'within');
+    cards[1]!.setAttribute(COMMUTE_ATTR, 'unknown');
+    cards[2]!.setAttribute(COMMUTE_ATTR, 'beyond');
+    decorateCards(doc, SETTINGS_30);
+    const beforeClear = {
+      commuteCount: doc.querySelectorAll(`[${COMMUTE_ATTR}]`).length,
+      badgeCount: doc.querySelectorAll(`[${BADGE_ATTR}]`).length,
+    };
+
+    clearDecorations(doc);
+
+    cards[0]!.setAttribute(COMMUTE_ATTR, 'within');
+    cards[1]!.setAttribute(COMMUTE_ATTR, 'unknown');
+    cards[2]!.setAttribute(COMMUTE_ATTR, 'beyond');
+    decorateCards(doc, SETTINGS_30);
+
+    expect(doc.querySelectorAll(`[${COMMUTE_ATTR}]`).length).toBe(
+      beforeClear.commuteCount
+    );
+    expect(doc.querySelectorAll(`[${BADGE_ATTR}]`).length).toBe(
+      beforeClear.badgeCount
+    );
+    expect(cards[0]!.querySelector(`[${BADGE_ATTR}]`)?.textContent).toBe(
+      '≤ 30 min'
+    );
+    expect(cards[1]!.querySelector(`[${BADGE_ATTR}]`)?.textContent).toBe(
+      'commute unknown'
+    );
   });
 });
 

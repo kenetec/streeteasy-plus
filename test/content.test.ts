@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { APPLY_FILTER } from '../src/lib/messages';
+import { APPLY_FILTER, CLEAR_FILTER } from '../src/lib/messages';
 import { showBanner } from '../src/content/banner';
 import type { CommuteSettings, GetIsochroneResponse } from '../src/types';
 
@@ -44,7 +44,19 @@ const ALL_ENCOMPASSING_RESPONSE: GetIsochroneResponse = {
   resolvedAddress: RESOLVED_ADDRESS,
 };
 
+let lastListener: ((msg: unknown) => void) | undefined;
+
 afterEach(() => {
+  // Each test's content.ts module instance may have started a
+  // MutationObserver watching document.body. vi.resetModules() gives the
+  // next test a fresh module registry, but that doesn't disconnect THIS
+  // instance's still-live observer — left alone, it keeps watching the
+  // (shared, real) document.body and can spuriously fire for a later
+  // test's mutations using its own stale activeFilter closure. Clearing
+  // via the listener (synchronous, real-timer-independent) tears it down
+  // before the next test starts.
+  lastListener?.({ type: CLEAR_FILTER });
+  lastListener = undefined;
   document.body.innerHTML = '';
 });
 
@@ -58,7 +70,8 @@ async function loadContentScriptListener(): Promise<(msg: unknown) => void> {
   if (typeof listener !== 'function') {
     throw new Error('content script did not register an onMessage listener');
   }
-  return listener as (msg: unknown) => void;
+  lastListener = listener as (msg: unknown) => void;
+  return lastListener;
 }
 
 describe('content script success path (smoke)', () => {
@@ -189,6 +202,150 @@ describe('content script MutationObserver wiring', () => {
       expect(reclassifyLogLines.length).toBe(1);
 
       consoleLog.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('content script CLEAR_FILTER teardown', () => {
+  it('sweeps every data-commute attribute/badge and removes the banner on CLEAR after a successful Apply', async () => {
+    vi.useFakeTimers();
+    try {
+      const parsedFixture = new DOMParser().parseFromString(
+        fixtureHtml,
+        'text/html'
+      );
+      document.body.innerHTML = parsedFixture.body.innerHTML;
+
+      (chrome.runtime.sendMessage as unknown as Mock).mockResolvedValue(
+        ALL_ENCOMPASSING_RESPONSE
+      );
+
+      const listener = await loadContentScriptListener();
+      listener({ type: APPLY_FILTER, settings });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(
+        document.querySelectorAll('[data-commute]').length
+      ).toBeGreaterThanOrEqual(10);
+      expect(
+        document.querySelectorAll('[data-commute-badge]').length
+      ).toBeGreaterThanOrEqual(10);
+      expect(document.getElementById('commute-filter-banner')).not.toBeNull();
+
+      listener({ type: CLEAR_FILTER });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(document.querySelectorAll('[data-commute]').length).toBe(0);
+      expect(document.querySelectorAll('[data-commute-badge]').length).toBe(
+        0
+      );
+      expect(document.getElementById('commute-filter-banner')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('disconnects the observer on CLEAR: a later DOM mutation produces no reclassification (most important test in this PR)', async () => {
+    vi.useFakeTimers();
+    try {
+      const parsedFixture = new DOMParser().parseFromString(
+        fixtureHtml,
+        'text/html'
+      );
+      document.body.innerHTML = parsedFixture.body.innerHTML;
+
+      (chrome.runtime.sendMessage as unknown as Mock).mockResolvedValue(
+        ALL_ENCOMPASSING_RESPONSE
+      );
+
+      const listener = await loadContentScriptListener();
+      listener({ type: APPLY_FILTER, settings });
+      await vi.advanceTimersByTimeAsync(0);
+
+      listener({ type: CLEAR_FILTER });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(document.querySelectorAll('[data-commute]').length).toBe(0);
+
+      // A DOM mutation after Clear must not resurrect the old (now stale)
+      // polygon's verdicts — this only holds if the observer was actually
+      // disconnected, not just left with a null activeFilter it could
+      // still (mis)read a moment later.
+      document.body.appendChild(document.createElement('div'));
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(document.querySelectorAll('[data-commute]').length).toBe(0);
+      expect(document.querySelectorAll('[data-commute-badge]').length).toBe(
+        0
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('CLEAR with no prior Apply is a silent no-op', async () => {
+    vi.useFakeTimers();
+    try {
+      const parsedFixture = new DOMParser().parseFromString(
+        fixtureHtml,
+        'text/html'
+      );
+      document.body.innerHTML = parsedFixture.body.innerHTML;
+
+      const listener = await loadContentScriptListener();
+
+      expect(() => listener({ type: CLEAR_FILTER })).not.toThrow();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(document.getElementById('commute-filter-banner')).toBeNull();
+      expect(document.querySelectorAll('[data-commute]').length).toBe(0);
+
+      // Legal to clear twice — exercises the observer's already-idempotent
+      // disconnect() through a handle that was never set.
+      expect(() => listener({ type: CLEAR_FILTER })).not.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Apply -> Clear -> Apply -> mutation still reclassifies via a fresh observer', async () => {
+    vi.useFakeTimers();
+    try {
+      const parsedFixture = new DOMParser().parseFromString(
+        fixtureHtml,
+        'text/html'
+      );
+      document.body.innerHTML = parsedFixture.body.innerHTML;
+
+      (chrome.runtime.sendMessage as unknown as Mock).mockResolvedValue(
+        ALL_ENCOMPASSING_RESPONSE
+      );
+
+      const listener = await loadContentScriptListener();
+      listener({ type: APPLY_FILTER, settings });
+      await vi.advanceTimersByTimeAsync(0);
+
+      listener({ type: CLEAR_FILTER });
+      await vi.advanceTimersByTimeAsync(0);
+
+      listener({ type: APPLY_FILTER, settings });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const cards = [...document.querySelectorAll('[data-commute]')];
+      expect(cards.length).toBeGreaterThanOrEqual(10);
+
+      // Simulate a replaced card losing its attribute again, same as the
+      // MutationObserver PR's wiring test.
+      const original = cards[0]!;
+      const replacement = original.cloneNode(true) as Element;
+      replacement.removeAttribute('data-commute');
+      replacement.querySelector('[data-commute-badge]')?.remove();
+      original.replaceWith(replacement);
+
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(replacement.getAttribute('data-commute')).toBe('within');
     } finally {
       vi.useRealTimers();
     }

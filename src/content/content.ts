@@ -6,13 +6,13 @@
 // React app, scrolling/map interaction/sorting/pagination replace or add
 // card DOM nodes after Apply, wiping our attributes or leaving new cards
 // undecorated — so a MutationObserver (observer.ts) re-runs classify+
-// decorate whenever that happens. CLEAR_FILTER cleanup of attributes/
-// badges is a separate, later PR.
+// decorate whenever that happens. CLEAR_FILTER tears all of that back down
+// (see clearFilter).
 
 import { APPLY_FILTER, CLEAR_FILTER, GET_ISOCHRONE } from '../lib/messages';
 import { removeBanner, showBanner } from './banner';
 import { classifyCards } from './classify';
-import { decorateCards } from './decorate';
+import { clearDecorations, decorateCards } from './decorate';
 import { startObserving } from './observer';
 import type { ObserverHandle } from './observer';
 import { findResultsContainer } from './streeteasy-dom';
@@ -35,9 +35,8 @@ interface ActiveFilter {
 // lifetime for "what filter is currently active" between re-renders.
 let activeFilter: ActiveFilter | undefined;
 
-// Left accessible via module state (not wired to CLEAR_FILTER) rather than
-// disconnected here: the future CLEAR PR owns full teardown (attribute/
-// badge sweep + disconnecting this observer) and needs this handle.
+// Module state so clearFilter() can disconnect it (and a later Apply can
+// replace it — see startFilterObserver).
 let observerHandle: ObserverHandle | undefined;
 
 log('content script loaded on', location.pathname);
@@ -126,8 +125,17 @@ function startFilterObserver(): void {
 }
 
 function clearFilter(): void {
+  // Order matters: disconnect the observer BEFORE sweeping. Otherwise the
+  // sweep's own DOM mutations (removing badges, stripping attributes) —
+  // plus any React activity interleaved with it — could race a final
+  // debounced reclassification that reads now-stale activeFilter state.
+  // Kill the source, then clean.
+  observerHandle?.disconnect();
+  observerHandle = undefined;
+
+  activeFilter = undefined;
+
+  clearDecorations(document);
   removeBanner();
-  // TODO (later PR): remove data-commute attributes and commute-badge
-  // elements added by classify.ts / decorate.ts, and disconnect
-  // observerHandle.
+  log('cleared');
 }
