@@ -6,17 +6,22 @@
 //  1. We observe { childList: true, subtree: true } only — NOT attributes.
 //     classify.ts's data-commute writes are attribute mutations, so they're
 //     invisible to this observer by construction.
-//  2. decorate.ts's badge insertions/removals ARE childList mutations
-//     (badges are <span> elements added/removed as normal children), so
-//     isRelevantMutation additionally filters out any mutation record whose
-//     every added/removed node is one of our own badges (or nested inside
-//     one, or a text/comment node).
-// Without both halves, classify -> decorate -> mutation -> classify would
-// loop forever. StreetEasy-agnostic: the only "ours" marker this module
-// knows about is BADGE_ATTR, imported from decorate.ts, not restrung here.
+//  2. Every element this extension creates (badges, the banner — anything
+//     future UI adds) carries OWNED_ATTR, so isRelevantMutation filters
+//     out any mutation record whose every added/removed node is one of our
+//     own (or nested inside one, or a text/comment node).
+// Without both halves, classify -> decorate/render -> mutation -> classify
+// would loop forever — this is exactly the incident this filter rule
+// fixes: an earlier version exempted badges BY KIND (BADGE_ATTR), and the
+// banner (a different kind of owned element) wasn't covered, so its own
+// re-render fed an infinite reclassification loop once a second UI surface
+// existed. Filtering by ownership rather than by element-kind means a
+// future UI element never needs its own exemption here. StreetEasy-
+// agnostic: the only "ours" marker this module knows about is OWNED_ATTR,
+// imported from decorate.ts, not restrung here.
 
 import { log } from '../lib/log';
-import { BADGE_ATTR } from './decorate';
+import { OWNED_ATTR } from './decorate';
 
 export interface ObserverHandle {
   disconnect(): void;
@@ -27,17 +32,18 @@ const DEFAULT_DEBOUNCE_MS = 250;
 function isOwnNode(node: Node): boolean {
   // Text/comment nodes are incidental DOM noise, not listing content.
   if (node.nodeType !== Node.ELEMENT_NODE) return true;
-  // Covers both "this node is a badge" and "this node is nested inside a
-  // badge" (e.g. a mutation record for a child appended within a badge
-  // after the badge itself was already inserted).
-  return (node as Element).closest(`[${BADGE_ATTR}]`) !== null;
+  // Covers both "this node is ours" and "this node is nested inside
+  // something we own" (e.g. a mutation record for a child appended within
+  // a badge or the banner after that element was already inserted).
+  return (node as Element).closest(`[${OWNED_ATTR}]`) !== null;
 }
 
 /**
  * True if `record` reflects a real content change (relevant) rather than
- * one of our own badge insertions/removals (irrelevant). A record is
- * irrelevant only when EVERY added and removed node is "ours" — any other
- * added/removed node makes the whole record relevant.
+ * one of our own UI insertions/removals (irrelevant) — badges, the banner,
+ * or anything else carrying OWNED_ATTR. A record is irrelevant only when
+ * EVERY added and removed node is "ours" — any other added/removed node
+ * makes the whole record relevant.
  */
 export function isRelevantMutation(record: MutationRecord): boolean {
   for (const node of record.addedNodes) {

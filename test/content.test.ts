@@ -472,3 +472,67 @@ describe('content script summary banner', () => {
     }
   });
 });
+
+describe('observer feedback-loop quiescence (regression test)', () => {
+  it('a real mutation triggers exactly one reclassification, and time passing alone never triggers another', async () => {
+    // This is the live incident this PR fixes: the observer callback
+    // reclassifies and re-renders the banner, and (before this fix) that
+    // render was itself a childList mutation the observer counted as
+    // relevant — reclassify -> render -> mutation -> observer fires ->
+    // reclassify ..., once per debounce window, forever, with no user
+    // input. Verified this test fails against the pre-fix code by
+    // temporarily reverting observer.ts's filter to BADGE_ATTR (instead of
+    // OWNED_ATTR) with banner.ts's showBanner still remove-and-recreating:
+    // reclassifyCallCount() kept climbing every 250ms instead of holding
+    // steady.
+    vi.useFakeTimers();
+    try {
+      const parsedFixture = new DOMParser().parseFromString(
+        fixtureHtml,
+        'text/html'
+      );
+      document.body.innerHTML = parsedFixture.body.innerHTML;
+
+      (chrome.runtime.sendMessage as unknown as Mock).mockResolvedValue(
+        ALL_ENCOMPASSING_RESPONSE
+      );
+      const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const reclassifyCallCount = () =>
+        consoleLog.mock.calls.filter((args) =>
+          args.some(
+            (arg) =>
+              typeof arg === 'string' &&
+              arg.includes('re-classified after DOM change')
+          )
+        ).length;
+
+      const listener = await loadContentScriptListener();
+      listener({ type: APPLY_FILTER, settings });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // One genuinely relevant mutation (a real, non-owned node).
+      document.body.appendChild(document.createElement('div'));
+      await vi.advanceTimersByTimeAsync(250);
+
+      const countAfterFirstFire = reclassifyCallCount();
+      expect(countAfterFirstFire).toBe(1);
+      const bannerAfterFirstFire = document.getElementById(
+        'commute-filter-banner'
+      );
+      expect(bannerAfterFirstFire).not.toBeNull();
+
+      // No further user input or real page changes from here — just let
+      // time pass well past several debounce windows.
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(reclassifyCallCount()).toBe(countAfterFirstFire);
+      expect(document.getElementById('commute-filter-banner')).toBe(
+        bannerAfterFirstFire
+      );
+
+      consoleLog.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
