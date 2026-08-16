@@ -8,7 +8,7 @@ import {
   isRelevantMutation,
   startObserving,
 } from '../src/content/observer';
-import { BADGE_ATTR } from '../src/content/decorate';
+import { BADGE_ATTR, OWNED_ATTR } from '../src/content/decorate';
 
 const DEBOUNCE_MS = 250;
 
@@ -27,9 +27,19 @@ function fakeRecord(overrides: Partial<MutationRecord>): MutationRecord {
   } as MutationRecord;
 }
 
+/** As decorate.ts's createBadge produces: both BADGE_ATTR and OWNED_ATTR. */
 function badgeElement(): Element {
   const el = document.createElement('span');
   el.setAttribute(BADGE_ATTR, '');
+  el.setAttribute(OWNED_ATTR, '');
+  return el;
+}
+
+/** As banner.ts's showBanner produces: the banner id plus OWNED_ATTR. */
+function bannerElement(): Element {
+  const el = document.createElement('div');
+  el.id = 'commute-filter-banner';
+  el.setAttribute(OWNED_ATTR, '');
   return el;
 }
 
@@ -133,6 +143,40 @@ describe('startObserving', () => {
     handle.disconnect();
   });
 
+  it('does not fire when a banner-shaped element is inserted (loop-guard: our own banner.ts writes)', async () => {
+    // This is the exact incident this PR fixes: banner.ts's showBanner
+    // used to remove-and-recreate on every render, and the old filter
+    // only exempted badges (by kind), so this insertion counted as
+    // "relevant" and fed an infinite reclassify -> render -> mutation ->
+    // reclassify loop. Ownership-based filtering (OWNED_ATTR) covers it
+    // without a banner-specific exemption.
+    const onChange = vi.fn();
+    const handle = startObserving(target, onChange, DEBOUNCE_MS);
+
+    target.appendChild(bannerElement());
+
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(onChange).not.toHaveBeenCalled();
+
+    handle.disconnect();
+  });
+
+  it('does not fire for any owned element, not just badges (ownership, not element-kind, is the guard)', async () => {
+    const onChange = vi.fn();
+    const handle = startObserving(target, onChange, DEBOUNCE_MS);
+
+    const owned = document.createElement('span');
+    owned.setAttribute(OWNED_ATTR, '');
+    target.appendChild(owned);
+    // Nested inside an owned subtree, not the owned root itself.
+    owned.appendChild(document.createElement('b'));
+
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(onChange).not.toHaveBeenCalled();
+
+    handle.disconnect();
+  });
+
   it('disconnect() stops future callbacks', async () => {
     const onChange = vi.fn();
     const handle = startObserving(target, onChange, DEBOUNCE_MS);
@@ -207,5 +251,27 @@ describe('isRelevantMutation', () => {
       addedNodes: [document.createTextNode('hi')] as unknown as NodeList,
     });
     expect(isRelevantMutation(record)).toBe(false);
+  });
+
+  it('is irrelevant when a banner-shaped element (id + OWNED_ATTR) is added', () => {
+    const record = fakeRecord({ addedNodes: [bannerElement()] as unknown as NodeList });
+    expect(isRelevantMutation(record)).toBe(false);
+  });
+
+  it('is irrelevant for any OWNED_ATTR element, added or removed, or nested inside one', () => {
+    const owned = document.createElement('span');
+    owned.setAttribute(OWNED_ATTR, '');
+    const addedRecord = fakeRecord({ addedNodes: [owned] as unknown as NodeList });
+    expect(isRelevantMutation(addedRecord)).toBe(false);
+
+    const removedRecord = fakeRecord({
+      removedNodes: [owned] as unknown as NodeList,
+    });
+    expect(isRelevantMutation(removedRecord)).toBe(false);
+
+    const inner = document.createElement('b');
+    owned.appendChild(inner);
+    const nestedRecord = fakeRecord({ addedNodes: [inner] as unknown as NodeList });
+    expect(isRelevantMutation(nestedRecord)).toBe(false);
   });
 });

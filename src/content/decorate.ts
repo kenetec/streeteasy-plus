@@ -5,6 +5,11 @@
 // APIs, no logging. Dimming "beyond" cards is handled by content.css alone
 // (attribute selector, no badge). findListingAnchor is imported (not
 // duplicated) from streeteasy-dom.ts, which owns the actual selector.
+//
+// Also home to OWNED_ATTR, the shared ownership marker banner.ts stamps
+// too — badges and the banner both trace their creation conventions here,
+// and there's no import cycle between decorate.ts and banner.ts, so a
+// separate constants module isn't needed.
 
 import { COMMUTE_ATTR } from './classify';
 import { findListingAnchor } from './streeteasy-dom';
@@ -12,9 +17,21 @@ import { findListingAnchor } from './streeteasy-dom';
 /**
  * Every badge this extension injects carries this attribute, so
  * clearDecorations can remove all of them with one `[data-commute-badge]`
- * selector regardless of verdict/text.
+ * selector regardless of verdict/text. Kept separate from OWNED_ATTR
+ * below: this one is badge-specific (identity, CLEAR sweep target);
+ * OWNED_ATTR is the generic "we made this" marker every injected element
+ * carries, badges included.
  */
 export const BADGE_ATTR = 'data-commute-badge';
+
+/**
+ * Stamped on every element this extension creates (badges, the banner —
+ * and anything future UI adds). The observer's relevance filter
+ * (observer.ts) ignores mutations rooted in owned elements: ownership, not
+ * element-kind, is the loop guard, so a new UI element never needs its own
+ * filter-side exemption to avoid re-triggering itself.
+ */
+export const OWNED_ATTR = 'data-commute-ui';
 
 const BADGE_CLASS = 'commute-badge';
 const BADGE_UNKNOWN_MODIFIER = 'commute-badge--unknown';
@@ -79,6 +96,7 @@ function createBadge(card: Element): Element {
   const doc = card.ownerDocument;
   const badge = doc.createElement('span');
   badge.setAttribute(BADGE_ATTR, '');
+  badge.setAttribute(OWNED_ATTR, '');
 
   const anchor = findListingAnchor(card);
   if (anchor && !anchor.querySelector('img')) {
