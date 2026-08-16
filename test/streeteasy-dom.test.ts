@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   discoverCards,
+  findListingAddress,
   findListingAnchor,
   findResultsContainer,
   normalizeListingUrl,
@@ -94,6 +95,85 @@ describe('findListingAnchor (fixture)', () => {
       anchor.remove();
     }
     expect(findListingAnchor(card)).toBeNull();
+  });
+});
+
+describe('findListingAddress (fixture)', () => {
+  it('composes street + neighborhood from a real fixture card', () => {
+    const card = doc.querySelector('[data-testid="listing-card"]');
+    expect(findListingAddress(card!)).toEqual({
+      query: '420 East 102nd Street, East Harlem, New York, NY',
+    });
+  });
+});
+
+describe('findListingAddress (synthetic)', () => {
+  it('strips a unit suffix and appends the neighborhood', () => {
+    const fragmentDoc = parseFragment(`
+      <div data-testid="listing-card">
+        <div>
+          <p>Rental unit in Bedford-Stuyvesant</p>
+          <a href="/building/foo/7l">1134 Fulton Street #7L</a>
+        </div>
+      </div>
+    `);
+    const card = fragmentDoc.querySelector('[data-testid="listing-card"]');
+    expect(findListingAddress(card!)).toEqual({
+      query: '1134 Fulton Street, Bedford-Stuyvesant, New York, NY',
+    });
+  });
+
+  it('preserves a hyphenated Queens house number (does not mistake it for a unit suffix)', () => {
+    const fragmentDoc = parseFragment(`
+      <div data-testid="listing-card">
+        <div>
+          <p>Rental unit in Long Island City</p>
+          <a href="/building/foo/1f">27-03 42nd Road</a>
+        </div>
+      </div>
+    `);
+    const card = fragmentDoc.querySelector('[data-testid="listing-card"]');
+    expect(findListingAddress(card!)).toEqual({
+      query: '27-03 42nd Road, Long Island City, New York, NY',
+    });
+  });
+
+  it('omits the neighborhood segment when no neighborhood line is found', () => {
+    const fragmentDoc = parseFragment(`
+      <div data-testid="listing-card">
+        <div>
+          <a href="/building/foo/1a">200 Water Street</a>
+        </div>
+      </div>
+    `);
+    const card = fragmentDoc.querySelector('[data-testid="listing-card"]');
+    expect(findListingAddress(card!)).toEqual({
+      query: '200 Water Street, New York, NY',
+    });
+  });
+
+  it('skips a textless image anchor even when it comes before the address anchor', () => {
+    const fragmentDoc = parseFragment(`
+      <div data-testid="listing-card">
+        <a href="/building/foo/2c"><img src="photo.jpg" /></a>
+        <div>
+          <p>Rental unit in Astoria</p>
+          <a href="/building/foo/2c">31-00 47th Ave #2C</a>
+        </div>
+      </div>
+    `);
+    const card = fragmentDoc.querySelector('[data-testid="listing-card"]');
+    expect(findListingAddress(card!)).toEqual({
+      query: '31-00 47th Ave, Astoria, New York, NY',
+    });
+  });
+
+  it('returns null for a card with no listing anchor at all', () => {
+    const fragmentDoc = parseFragment(
+      '<div data-testid="listing-card"><span>no link here</span></div>'
+    );
+    const card = fragmentDoc.querySelector('[data-testid="listing-card"]');
+    expect(findListingAddress(card!)).toBeNull();
   });
 });
 

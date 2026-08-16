@@ -9,18 +9,28 @@
 // decorate whenever that happens. CLEAR_FILTER tears all of that back down
 // (see clearFilter).
 
-import { APPLY_FILTER, CLEAR_FILTER, GET_ISOCHRONE } from '../lib/messages';
+import {
+  APPLY_FILTER,
+  CLEAR_FILTER,
+  GEOCODE_ADDRESSES,
+  GET_ISOCHRONE,
+} from '../lib/messages';
 import { removeBanner, showBanner } from './banner';
-import { classifyCards } from './classify';
+import { classifyCards, countVerdicts } from './classify';
+import type { ClassificationResult } from './classify';
 import { clearDecorations, decorateCards } from './decorate';
+import { resolveUnknownCards } from './fallback';
 import { startObserving } from './observer';
 import type { ObserverHandle } from './observer';
 import { findResultsContainer } from './streeteasy-dom';
 import { formatSummary } from './summary';
-import { log } from '../lib/log';
+import { error as logError, log } from '../lib/log';
 import type { MultiPolygonCoords } from '../lib/geometry';
 import type {
   CommuteSettings,
+  GeocodeAddressesMessage,
+  GeocodeAddressesResponse,
+  GeocodeAddressesResult,
   GetIsochroneMessage,
   GetIsochroneResponse,
   PopupToContentMessage,
@@ -42,6 +52,21 @@ let activeFilter: ActiveFilter | undefined;
 // Module state so clearFilter() can disconnect it (and a later Apply can
 // replace it — see startFilterObserver).
 let observerHandle: ObserverHandle | undefined;
+
+// Bumped on every wave-1 run (Apply success, CLEAR, and each
+// observer-triggered re-run) — see bumpGeneration(). A wave-2 call captures
+// the token at the moment it's fired; if the token has moved on by the time
+// its geocode batch resolves, a newer wave already owns the DOM and its
+// results are discarded unstamped (fallback.ts's isStale dep).
+let generationToken = 0;
+
+// Bounds wave-2 concurrency at 1 across the whole module (combined with the
+// observer's 250ms debounce): while a wave-2 batch is in flight, a
+// subsequent wave-1 run with its own unknowns simply doesn't fire a second
+// one. The generation token would discard a superseded wave's results
+// anyway, so this isn't a correctness guard — it's here to avoid spending
+// redundant geocode credits on a request whose results are thrown away.
+let wave2InFlight = false;
 
 log('content script loaded on', location.pathname);
 
@@ -108,6 +133,87 @@ async function applyFilter(settings: CommuteSettings): Promise<void> {
     resolvedAddress: response.resolvedAddress,
   };
   startFilterObserver();
+
+  const generation = bumpGeneration();
+  maybeRunWave2(result, polygon, response.resolvedAddress, generation);
+}
+
+/**
+ * Sends `addresses` to the service worker via GEOCODE_ADDRESSES and
+ * unwraps the response into the plain Record fallback.ts's FallbackDeps
+ * expects. Throws on `ok: false` (a systemic failure, e.g. missing API
+ * key) — resolveUnknownCards doesn't wrap this call in its own try/catch,
+ * so the throw propagates up to maybeRunWave2's .catch below, where a
+ * failed wave 2 just leaves its candidate cards "unknown" (never crashes
+ * wave 1).
+ */
+async function sendGeocodeAddresses(
+  addresses: string[]
+): Promise<GeocodeAddressesResult> {
+  const request: GeocodeAddressesMessage = {
+    type: GEOCODE_ADDRESSES,
+    addresses,
+  };
+  const response = (await chrome.runtime.sendMessage(
+    request
+  )) as GeocodeAddressesResponse | undefined;
+
+  if (!response?.ok) {
+    throw new Error(
+      response && !response.ok ? response.error : 'no response'
+    );
+  }
+  return response.results;
+}
+
+/**
+ * Fires wave 2 (fallback.ts) for a wave-1 result that left some cards
+ * "unknown" — see the module-level doc comments on generationToken/
+ * wave2InFlight for the concurrency/staleness contracts this relies on.
+ * Not awaited by callers: wave 1 must never block on this.
+ */
+function maybeRunWave2(
+  result: ClassificationResult,
+  polygon: MultiPolygonCoords,
+  resolvedAddress: string,
+  generation: number
+): void {
+  if (result.unknown === 0) return;
+  if (wave2InFlight) return;
+
+  wave2InFlight = true;
+  resolveUnknownCards(document, polygon, {
+    geocode: sendGeocodeAddresses,
+    isStale: () => generationToken !== generation,
+  })
+    .catch((err) => {
+      logError('wave 2 (geocode fallback) failed', err);
+    })
+    .finally(() => {
+      wave2InFlight = false;
+
+      // Superseded by a newer wave-1 run while we were awaiting geocodes —
+      // that run already rendered its own banner; nothing more to do.
+      if (generationToken !== generation) return;
+
+      const recounted = countVerdicts(document);
+      log('wave 2 recount', recounted);
+      showBanner(formatSummary(resolvedAddress, recounted));
+    });
+}
+
+/**
+ * Bumps and returns the generation token. Called after every wave-1 run
+ * (Apply success, CLEAR, each observer-triggered re-run) — including runs
+ * that don't themselves fire wave 2 — because classifyCards overwrites
+ * every card's data-commute attribute unconditionally on each run. An
+ * older, still in-flight wave 2 stamping after a newer wave 1 already
+ * reclassified the document would clobber fresh verdicts with stale ones;
+ * bumping on every run, not just runs that fire their own wave 2, is what
+ * makes the isStale check in maybeRunWave2/resolveUnknownCards catch that.
+ */
+function bumpGeneration(): number {
+  return ++generationToken;
 }
 
 /**
@@ -137,6 +243,14 @@ function startFilterObserver(): void {
     decorateCards(document, { maxMinutes: current.maxMinutes });
     log('re-classified after DOM change', rerunResult);
     showBanner(formatSummary(current.resolvedAddress, rerunResult));
+
+    const generation = bumpGeneration();
+    maybeRunWave2(
+      rerunResult,
+      current.polygon,
+      current.resolvedAddress,
+      generation
+    );
   });
 }
 
@@ -150,6 +264,10 @@ function clearFilter(): void {
   observerHandle = undefined;
 
   activeFilter = undefined;
+  // Invalidates any in-flight wave 2 (see bumpGeneration's doc comment) —
+  // a cleared filter means no wave owns the DOM anymore, so its results
+  // must never land after this point.
+  bumpGeneration();
 
   clearDecorations(document);
   removeBanner();
