@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { classifyCards, COMMUTE_ATTR } from '../src/content/classify';
+import { classifyCards, COMMUTE_ATTR, countVerdicts } from '../src/content/classify';
 import { discoverCards } from '../src/content/streeteasy-dom';
 import { extractListingGeo } from '../src/content/streeteasy-jsonld';
 import type { MultiPolygonCoords } from '../src/lib/geometry';
@@ -150,5 +150,44 @@ describe('classifyCards (re-run semantics)', () => {
       `[${COMMUTE_ATTR}="within"]`
     ).length;
     expect(withinAttrCount).toBe(0);
+  });
+});
+
+describe('countVerdicts', () => {
+  it('tallies zero for a document with no data-commute attributes', () => {
+    const doc = new DOMParser().parseFromString(
+      '<div><span>nothing stamped</span></div>',
+      'text/html'
+    );
+    expect(countVerdicts(doc)).toEqual({ within: 0, beyond: 0, unknown: 0 });
+  });
+
+  it('tallies a hand-stamped mix of verdicts', () => {
+    const doc = new DOMParser().parseFromString(
+      `<div>
+        <span data-commute="within"></span>
+        <span data-commute="within"></span>
+        <span data-commute="beyond"></span>
+        <span data-commute="unknown"></span>
+      </div>`,
+      'text/html'
+    );
+    expect(countVerdicts(doc)).toEqual({ within: 2, beyond: 1, unknown: 1 });
+  });
+
+  it('matches classifyCards\' own tally on the real fixture (two writers, one source of truth)', () => {
+    const doc = parseFixture();
+    const classifyResult = classifyCards(doc, ALL_ENCOMPASSING);
+    expect(countVerdicts(doc)).toEqual(classifyResult);
+  });
+
+  it('reflects a verdict upgraded in place after classifyCards ran (as wave 2 does)', () => {
+    const doc = new DOMParser().parseFromString(
+      '<div><span data-commute="unknown"></span></div>',
+      'text/html'
+    );
+    const card = doc.querySelector('[data-commute]')!;
+    card.setAttribute(COMMUTE_ATTR, 'within');
+    expect(countVerdicts(doc)).toEqual({ within: 1, beyond: 0, unknown: 0 });
   });
 });

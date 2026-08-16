@@ -52,11 +52,23 @@ export interface GetIsochroneMessage {
   settings: CommuteSettings;
 }
 
+/**
+ * Wave 2 (fallback.ts): batch-geocodes the addresses of cards JSON-LD
+ * couldn't place. One message per invocation — addresses are deduped by
+ * the caller before sending.
+ */
+export interface GeocodeAddressesMessage {
+  type: 'GEOCODE_ADDRESSES';
+  addresses: string[];
+}
+
 /** Messages sent from popup -> content script. */
 export type PopupToContentMessage = ApplyFilterMessage | ClearFilterMessage;
 
 /** Messages sent from content script -> background service worker. */
-export type ContentToBackgroundMessage = GetIsochroneMessage;
+export type ContentToBackgroundMessage =
+  | GetIsochroneMessage
+  | GeocodeAddressesMessage;
 
 /**
  * Response to GET_ISOCHRONE. `resolvedAddress` (the geocoder's formatted
@@ -65,6 +77,23 @@ export type ContentToBackgroundMessage = GetIsochroneMessage;
  */
 export type GetIsochroneResponse =
   | { ok: true; polygon: IsochronePolygon; resolvedAddress: string }
+  | { ok: false; error: string };
+
+/** Keyed by the exact address string sent in the request. */
+export type GeocodeAddressesResult = Record<
+  string,
+  { lat: number; lng: number } | null
+>;
+
+/**
+ * Response to GEOCODE_ADDRESSES. `ok: false` is reserved for systemic
+ * failures (e.g. a missing/invalid API key) that would doom every address
+ * in the batch identically — an individual address not resolving is NOT
+ * one of these, it just maps to `null` in `results` (see
+ * handleGeocodeAddresses in src/lib/messages.ts).
+ */
+export type GeocodeAddressesResponse =
+  | { ok: true; results: GeocodeAddressesResult }
   | { ok: false; error: string };
 
 // --- Commute provider interface (design doc; implemented in a later step) ---

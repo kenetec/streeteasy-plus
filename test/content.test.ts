@@ -7,10 +7,19 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { APPLY_FILTER, CLEAR_FILTER } from '../src/lib/messages';
+import {
+  APPLY_FILTER,
+  CLEAR_FILTER,
+  GEOCODE_ADDRESSES,
+  GET_ISOCHRONE,
+} from '../src/lib/messages';
 import { showBanner } from '../src/content/banner';
-import { discoverCards } from '../src/content/streeteasy-dom';
-import type { CommuteSettings, GetIsochroneResponse } from '../src/types';
+import { discoverCards, findListingAddress } from '../src/content/streeteasy-dom';
+import type {
+  CommuteSettings,
+  GeocodeAddressesResponse,
+  GetIsochroneResponse,
+} from '../src/types';
 
 const fixturePath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -534,5 +543,96 @@ describe('observer feedback-loop quiescence (regression test)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('content script wave 2 (geocode fallback)', () => {
+  // Real timers throughout (like the success-path smoke test above): wave
+  // 2's own pipeline is pure promise microtasks with no setTimeout, and
+  // vi.waitFor's polling is a simpler way to synchronize on it than
+  // counting fake-timer microtask hops.
+  it('does not fire wave 2 when Apply on the untouched fixture leaves zero unknown cards', async () => {
+    const parsedFixture = new DOMParser().parseFromString(
+      fixtureHtml,
+      'text/html'
+    );
+    document.body.innerHTML = parsedFixture.body.innerHTML;
+
+    const sendMessageMock = chrome.runtime.sendMessage as unknown as Mock;
+    sendMessageMock.mockImplementation((msg: unknown) => {
+      const type = (msg as { type?: string })?.type;
+      if (type === GET_ISOCHRONE) return Promise.resolve(ALL_ENCOMPASSING_RESPONSE);
+      throw new Error(`unexpected message in this test: ${type}`);
+    });
+
+    const listener = await loadContentScriptListener();
+    listener({ type: APPLY_FILTER, settings });
+
+    await vi.waitFor(() => {
+      expect(document.getElementById('commute-filter-banner')?.textContent).toBe(
+        `Commute filter active — from ${RESOLVED_ADDRESS} · 14 within · 0 beyond`
+      );
+    });
+
+    const geocodeCalls = sendMessageMock.mock.calls.filter(
+      ([msg]) => (msg as { type?: string })?.type === GEOCODE_ADDRESSES
+    );
+    expect(geocodeCalls.length).toBe(0);
+  });
+
+  it('fires wave 2 for a doctored fixture with one unmatched card, upgrades it, and recounts the banner', async () => {
+    const parsedFixture = new DOMParser().parseFromString(
+      fixtureHtml,
+      'text/html'
+    );
+    document.body.innerHTML = parsedFixture.body.innerHTML;
+
+    // Same technique as the "recounts and updates banner" test above: strip
+    // one card's JSON-LD Apartment node so wave 1 leaves it "unknown".
+    const targetUrl = 'https://streeteasy.com/building/the34/617';
+    const targetCard = discoverCards(document).find(
+      (card) => card.listingUrl === targetUrl
+    );
+    expect(targetCard).toBeDefined();
+    const address = findListingAddress(targetCard!.element);
+    expect(address).not.toBeNull();
+
+    const script = document.querySelector(
+      'script[type="application/ld+json"]'
+    )!;
+    const data = JSON.parse(script.textContent ?? '{}');
+    data['@graph'] = (data['@graph'] as Array<Record<string, unknown>>).filter(
+      (node) => !(node['@type'] === 'Apartment' && node.url === targetUrl)
+    );
+    script.textContent = JSON.stringify(data);
+
+    const geocodedCoords = { lat: 40.7, lng: -73.9 };
+
+    const sendMessageMock = chrome.runtime.sendMessage as unknown as Mock;
+    sendMessageMock.mockImplementation((msg: unknown) => {
+      const type = (msg as { type?: string })?.type;
+      if (type === GET_ISOCHRONE) return Promise.resolve(ALL_ENCOMPASSING_RESPONSE);
+      if (type === GEOCODE_ADDRESSES) {
+        const response: GeocodeAddressesResponse = {
+          ok: true,
+          results: { [address!.query]: geocodedCoords },
+        };
+        return Promise.resolve(response);
+      }
+      throw new Error(`unexpected message in this test: ${type}`);
+    });
+
+    const listener = await loadContentScriptListener();
+    listener({ type: APPLY_FILTER, settings });
+
+    await vi.waitFor(() => {
+      expect(targetCard!.element.getAttribute('data-commute')).toBe('within');
+    });
+
+    await vi.waitFor(() => {
+      expect(document.getElementById('commute-filter-banner')?.textContent).toBe(
+        `Commute filter active — from ${RESOLVED_ADDRESS} · 14 within · 0 beyond`
+      );
+    });
   });
 });

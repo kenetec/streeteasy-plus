@@ -60,3 +60,24 @@ export function classifyCards(
 
   return result;
 }
+
+/**
+ * Tallies `data-commute` verdicts directly from the DOM under `root`. Two
+ * writers stamp the attribute after Apply — classifyCards (wave 1, JSON-LD)
+ * and fallback.ts's resolveUnknownCards (wave 2, geocode fallback), which
+ * upgrades some of wave 1's "unknown"s in place — so rather than thread an
+ * arithmetic delta between them, the DOM is the single source of truth and
+ * this just counts whatever is actually stamped.
+ */
+export function countVerdicts(root: ParentNode): ClassificationResult {
+  const result: ClassificationResult = { within: 0, beyond: 0, unknown: 0 };
+
+  for (const element of root.querySelectorAll(`[${COMMUTE_ATTR}]`)) {
+    const verdict = element.getAttribute(COMMUTE_ATTR);
+    if (verdict === 'within' || verdict === 'beyond' || verdict === 'unknown') {
+      result[verdict]++;
+    }
+  }
+
+  return result;
+}

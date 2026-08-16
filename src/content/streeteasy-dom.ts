@@ -39,8 +39,20 @@ export function discoverCards(root: ParentNode): DiscoveredCard[] {
  * (`/building/...` or `/rental/...`), or null if the card has none. Used
  * both by `discoverCards` (to derive the card's listingUrl) and by
  * decorate.ts (to place the badge right after the address link).
+ *
+ * Confirmed on real cards: there are always TWO listing-pattern anchors —
+ * the address link and an image-carousel link wrapping the photo — and
+ * their DOM order isn't a contract worth relying on. With
+ * `preferText: true` (used by findListingAddress below, which needs actual
+ * address text) this skips any matching anchor whose trimmed textContent
+ * is empty rather than returning the first match regardless of text.
+ * Default behavior (badge placement, discoverCards) is unchanged.
  */
-export function findListingAnchor(card: Element): HTMLAnchorElement | null {
+export function findListingAnchor(
+  card: Element,
+  options?: { preferText?: boolean }
+): HTMLAnchorElement | null {
+  const preferText = options?.preferText ?? false;
   for (const anchor of card.querySelectorAll('a[href]')) {
     const href = anchor.getAttribute('href');
     if (!href) continue;
@@ -53,9 +65,70 @@ export function findListingAnchor(card: Element): HTMLAnchorElement | null {
     }
     if (!LISTING_HREF_PATTERN.test(resolved.pathname)) continue;
 
+    if (preferText && !anchor.textContent?.trim()) continue;
+
     return anchor as HTMLAnchorElement;
   }
   return null;
+}
+
+export interface CardAddress {
+  /** Geocodable one-line address, e.g. "1134 Fulton Street, Bedford-Stuyvesant, New York, NY". */
+  query: string;
+}
+
+// Strips a trailing unit suffix ("#7L", "#3-B", ...) from a street address.
+// Requires a preceding space so it can't clip a hyphenated Queens house
+// number like "27-03 42nd Road" (no "#" anywhere in that string, so this
+// never matches it).
+const UNIT_SUFFIX_PATTERN = /\s+#.*$/;
+
+/**
+ * Finds the neighborhood name for `anchor`'s card, e.g. "Bedford-
+ * Stuyvesant" from a nearby line reading "Rental unit in Bedford-
+ * Stuyvesant". Located by text shape (a sibling of the address anchor
+ * whose text contains " in <something>"), not by StreetEasy's minified
+ * CSS-module class names, which change on every deploy. Returns undefined
+ * — never throws — if no sibling matches; the NYC bounding-rect geocode
+ * filter still bounds the result even without a neighborhood.
+ */
+function findNeighborhood(anchor: Element): string | undefined {
+  const parent = anchor.parentElement;
+  if (!parent) return undefined;
+
+  for (const sibling of parent.children) {
+    if (sibling === anchor) continue;
+    const text = sibling.textContent?.replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const match = text.match(/ in (.+)$/);
+    if (match?.[1]) return match[1].trim();
+  }
+  return undefined;
+}
+
+/**
+ * Extracts a geocodable one-line address from `card`: the listing anchor's
+ * text (unit suffix stripped) plus, when findable, the card's neighborhood
+ * line. Returns null only when the card has no address text at all — a
+ * card whose address resolves but has no locatable neighborhood still
+ * returns a usable (if slightly less precise) query.
+ */
+export function findListingAddress(card: Element): CardAddress | null {
+  const anchor = findListingAnchor(card, { preferText: true });
+  if (!anchor) return null;
+
+  const rawStreet = anchor.textContent?.trim();
+  if (!rawStreet) return null;
+
+  const stripped = rawStreet.replace(UNIT_SUFFIX_PATTERN, '').trim();
+  const street = stripped || rawStreet;
+
+  const neighborhood = findNeighborhood(anchor);
+  const query = neighborhood
+    ? `${street}, ${neighborhood}, New York, NY`
+    : `${street}, New York, NY`;
+
+  return { query };
 }
 
 /**
